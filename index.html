@@ -620,6 +620,16 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
 .study-type-row { display: flex; gap: .45rem; margin-bottom: .9rem; flex-wrap: wrap; }
 .kw-textarea-label { display: block; font-weight: 600; margin-bottom: .35rem; font-size: .87rem; margin-top: .9rem; }
 
+/* ── API key guide ── */
+.key-guide-toggle { background: none; border: none; font-family: var(--mono); font-size: .7rem; color: var(--accent); cursor: pointer; padding: 0; margin-top: .35rem; text-decoration: underline; text-underline-offset: 2px; }
+.key-guide-toggle:hover { color: #a83f13; }
+.key-guide { margin-top: .65rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); padding: .75rem .9rem; animation: fadeUp .2s ease; }
+.key-guide-title { font-family: var(--mono); font-size: .67rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin: 0 0 .55rem; }
+.key-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: .3rem; }
+.key-step { display: flex; align-items: flex-start; gap: .55rem; font-size: .8rem; line-height: 1.5; }
+.key-step-num { font-family: var(--mono); font-size: .65rem; font-weight: 600; color: #fff; background: var(--accent); border-radius: 99px; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: .15rem; }
+.key-guide-url { display: inline-block; margin-top: .55rem; font-family: var(--mono); font-size: .72rem; color: var(--accent); background: var(--hi); border: 1px solid rgba(196,84,26,.2); padding: .2rem .55rem; border-radius: var(--r); }
+
 /* Responsive */
 @media (max-width:600px) {
   .header h1 { font-size: 2.2rem; }
@@ -665,6 +675,53 @@ const PROVIDERS = {
   claude: { label: 'Anthropic',   color: '#c4541a', placeholder: 'sk-ant-…', note: 'Get your key at console.anthropic.com' },
   openai: { label: 'OpenAI',      color: '#10a37f', placeholder: 'sk-…',     note: 'Get your key at platform.openai.com' },
   gemini: { label: 'Google',      color: '#1a73e8', placeholder: 'AIza…',    note: 'Get your key at aistudio.google.com' },
+};
+
+const KEY_STEPS = {
+  groq: {
+    url: 'console.groq.com',
+    steps: [
+      'Go to console.groq.com',
+      'Sign up or log in — free tier available, no credit card needed',
+      'Click "API Keys" in the left sidebar',
+      'Click "Create API Key" and give it a name (e.g. "TitleSmart")',
+      'Copy the key — it starts with gsk_',
+      'Paste it in the field above',
+    ],
+  },
+  claude: {
+    url: 'console.anthropic.com',
+    steps: [
+      'Go to console.anthropic.com',
+      'Sign up or log in',
+      'Click "API Keys" in the left sidebar',
+      'Click "Create Key" and give it a name',
+      'Copy the key — it starts with sk-ant-',
+      'Paste it in the field above',
+    ],
+  },
+  openai: {
+    url: 'platform.openai.com',
+    steps: [
+      'Go to platform.openai.com',
+      'Sign up or log in (requires billing setup)',
+      'Click your profile icon → "API keys"',
+      'Click "Create new secret key"',
+      'Copy the key — it starts with sk-',
+      'Paste it in the field above',
+    ],
+  },
+  gemini: {
+    url: 'aistudio.google.com',
+    steps: [
+      'Go to aistudio.google.com',
+      'Sign in with your Google account',
+      'Click "Get API Key" in the top-left menu',
+      'Click "Create API key in new project"',
+      'Copy the key — it starts with AIza',
+      'Paste it in the field above',
+    ],
+  },
 };
 
 const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
@@ -1739,6 +1796,7 @@ function App() {
     };
   });
   const [settingsOpen, setSettings]     = useState(false);
+  const [keyGuideOpen, setKeyGuide]     = useState(false);
   const [running, setRunning]           = useState(false);
   const [steps, setSteps]               = useState({});
   const [mode, setMode]                 = useState('title');
@@ -2238,6 +2296,29 @@ function App() {
               autoComplete="off"
             />
             <p className="key-note">{PROVIDERS[provider].note} · Stored in sessionStorage only, never logged.</p>
+            <button
+              className="key-guide-toggle"
+              onClick={function() { setKeyGuide(function(o) { return !o; }); }}
+              type="button"
+            >
+              {keyGuideOpen ? '▲ Hide steps' : '▼ How to get a free API key'}
+            </button>
+            {keyGuideOpen && KEY_STEPS[provider] && (
+              <div className="key-guide">
+                <p className="key-guide-title">Step-by-step: {PROVIDERS[provider].label} API Key</p>
+                <ol className="key-steps">
+                  {KEY_STEPS[provider].steps.map(function(step, i) {
+                    return (
+                      <li key={i} className="key-step">
+                        <span className="key-step-num">{i + 1}</span>
+                        <span>{step}</span>
+                      </li>
+                    );
+                  })}
+                </ol>
+                <span className="key-guide-url">{KEY_STEPS[provider].url}</span>
+              </div>
+            )}
           </div>
 
         </div>
