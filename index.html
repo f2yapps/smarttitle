@@ -1078,7 +1078,7 @@ function prompt3(abstract, field, corpus, aiStructure, decomp, rel5papers) {
 
 async function fetchJournals(query) {
   const url = 'https://api.openalex.org/sources?search=' + encodeURIComponent(query) +
-    '&filter=type:journal&per-page=20&sort=cited_by_count:desc&mailto=support@f2yapps.com';
+    '&filter=type:journal&per-page=20&sort=cited_by_count:desc&select=id,display_name,publisher,is_oa,summary_stats,apc_usd,apc_prices&mailto=support@f2yapps.com';
   const res = await fetch(url);
   if (!res.ok) throw new Error('OpenAlex ' + res.status);
   const data = await res.json();
@@ -1098,14 +1098,31 @@ function promptJournal2(abstract, field, methodology, journalData, prefs) {
     const stats = j.summary_stats || {};
     const citedness = stats['2yr_mean_citedness'] != null ? stats['2yr_mean_citedness'] : null;
     const ifStr = citedness !== null ? citedness.toFixed(2) : 'N/A';
-    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF~' + ifStr + ' | ' + (j.publisher || 'unknown publisher');
+    const apc = j.apc_usd ? '$' + j.apc_usd : (j.apc_prices && j.apc_prices.length > 0 ? '$' + j.apc_prices[0].price : 'APC unknown');
+    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF~' + ifStr + ' | APC:' + apc + ' | ' + (j.publisher || 'unknown publisher');
   }).join('\n');
-  const hIdx = prefs.hindex ? 'h-index ' + prefs.hindex : 'unknown h-index';
+
+  const hIdx = parseInt(prefs.hindex, 10) || 0;
+  var tierRules;
+  if (hIdx === 0) {
+    tierRules = 'Author h-index unknown — use topic/method fit as primary tier signal.';
+  } else if (hIdx <= 5) {
+    tierRules = 'Author h-index ' + hIdx + ' (early career). safe = IF < 2, good = IF 2–4, stretch = IF > 4. Avoid desk-rejection by not over-reaching.';
+  } else if (hIdx <= 15) {
+    tierRules = 'Author h-index ' + hIdx + ' (mid career). safe = IF < 4, good = IF 4–8, stretch = IF > 8.';
+  } else if (hIdx <= 30) {
+    tierRules = 'Author h-index ' + hIdx + ' (established). safe = IF < 8, good = IF 8–15, stretch = IF > 15.';
+  } else {
+    tierRules = 'Author h-index ' + hIdx + ' (senior/highly cited). All IF ranges are reachable — tier by topic fit, not prestige.';
+  }
+
   const access = prefs.access && prefs.access !== 'any' ? prefs.access : 'no preference';
+  const msType = prefs.manuscriptType || 'research article';
+  const oaNote = prefs.oaMandate ? 'FUNDER REQUIRES OPEN ACCESS — only recommend open-access or hybrid journals.' : '';
 
   return {
     system: 'You are an expert academic publication consultant. Return only valid JSON, no markdown.',
-    user: 'Recommend the 5 best journals for this paper.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nFIELD: ' + field + '\nMETHODOLOGY: ' + methodology + '\nAUTHOR: ' + hIdx + '\nACCESS PREFERENCE: ' + access + '\n\nAVAILABLE JOURNALS:\n' + rows + '\n\nAssign tier: safe (well within author reach), good (strong fit), stretch (ambitious target).\nScore topic_fit, method_fit, scope_fit each 0-100.\n\nReturn JSON exactly:\n{\n  "journals": [\n    {\n      "rank": 1,\n      "name": "",\n      "publisher": "",\n      "access_type": "open-access|subscription|hybrid",\n      "impact_factor": 0.0,\n      "tier": "safe|good|stretch",\n      "topic_fit": 0,\n      "method_fit": 0,\n      "scope_fit": 0,\n      "why": "2-3 sentence rationale"\n    }\n  ]\n}',
+    user: 'Recommend the 5 best journals for this paper.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nFIELD: ' + field + '\nMETHODOLOGY: ' + methodology + '\nMANUSCRIPT TYPE: ' + msType + '\nACCESS PREFERENCE: ' + access + '\n' + oaNote + '\n\nTIER ASSIGNMENT RULES (use these exactly):\n' + tierRules + '\n\nAVAILABLE JOURNALS (IF = 2-year mean citedness from OpenAlex, APC = article processing charge):\n' + rows + '\n\nScore topic_fit, method_fit, scope_fit each 0-100. Consider manuscript type — e.g. review articles suit review-oriented journals, short communications suit letters journals.\n\nReturn JSON exactly:\n{\n  "journals": [\n    {\n      "rank": 1,\n      "name": "",\n      "publisher": "",\n      "access_type": "open-access|subscription|hybrid",\n      "impact_factor": 0.0,\n      "apc_usd": 0,\n      "tier": "safe|good|stretch",\n      "topic_fit": 0,\n      "method_fit": 0,\n      "scope_fit": 0,\n      "why": "2-3 sentence rationale mentioning why tier was assigned"\n    }\n  ]\n}',
   };
 }
 
@@ -1502,10 +1519,14 @@ function JournalCard({ item, rank }) {
         </div>
       </div>
       <div className="journal-body">
-        <div className="journal-meta">
+        <div className="journal-meta" style={{ gridTemplateColumns:'repeat(4,1fr)' }}>
           <div className="jmeta">
             <span className="jmeta-val">{item.impact_factor ? item.impact_factor.toFixed(1) : 'N/A'}</span>
             <span className="jmeta-lbl">Impact Factor</span>
+          </div>
+          <div className="jmeta">
+            <span className="jmeta-val">{item.apc_usd ? '$' + item.apc_usd.toLocaleString() : '—'}</span>
+            <span className="jmeta-lbl">APC (USD)</span>
           </div>
           <div className="jmeta">
             <span className="jmeta-val">{avgFit}%</span>
@@ -1800,7 +1821,7 @@ function App() {
   const [running, setRunning]           = useState(false);
   const [steps, setSteps]               = useState({});
   const [mode, setMode]                 = useState('title');
-  const [journalPrefs, setJPrefs]       = useState({ access: 'any', hindex: '' });
+  const [journalPrefs, setJPrefs]       = useState({ access: 'any', hindex: '', manuscriptType: 'research article', oaMandate: false });
   const [journalSteps, setJSteps]       = useState(null);
   const [abstractResult, setAbstRes]    = useState(null);
   const [journalRunning, setJRunning]   = useState(false);
@@ -2468,7 +2489,26 @@ function App() {
 
           {mode === 'journal' && (
             <>
+              {/* Manuscript type */}
               <div className="filter-row" style={{ marginTop:'.9rem' }}>
+                <span style={{ fontSize:'.8rem', color:'var(--muted)', marginRight:'.2rem' }}>Type:</span>
+                {[
+                  { key:'research article', lbl:'Research Article' },
+                  { key:'review',           lbl:'Review'           },
+                  { key:'short communication', lbl:'Short Comm.'   },
+                  { key:'perspective',      lbl:'Perspective'      },
+                ].map(function(opt) {
+                  return (
+                    <button key={opt.key}
+                      className={'filter-btn' + (journalPrefs.manuscriptType === opt.key ? ' active' : '')}
+                      onClick={function() { setJPrefs(function(p) { return Object.assign({}, p, { manuscriptType: opt.key }); }); }}
+                      type="button"
+                    >{opt.lbl}</button>
+                  );
+                })}
+              </div>
+              {/* Access filter */}
+              <div className="filter-row">
                 <span style={{ fontSize:'.8rem', color:'var(--muted)', marginRight:'.2rem' }}>Access:</span>
                 {[
                   { key:'any',          lbl:'Any'          },
@@ -2477,17 +2517,17 @@ function App() {
                   { key:'hybrid',       lbl:'Hybrid'       },
                 ].map(function(opt) {
                   return (
-                    <button
-                      key={opt.key}
+                    <button key={opt.key}
                       className={'filter-btn' + (journalPrefs.access === opt.key ? ' active' : '')}
-                      onClick={function() { setJPrefs(function(p) { return { access: opt.key, hindex: p.hindex }; }); }}
+                      onClick={function() { setJPrefs(function(p) { return Object.assign({}, p, { access: opt.key }); }); }}
                       type="button"
                     >{opt.lbl}</button>
                   );
                 })}
               </div>
+              {/* h-index + OA mandate row */}
               <div className="hindex-row">
-                <label htmlFor="hindex">Your h-index (optional):</label>
+                <label htmlFor="hindex">h-index (optional):</label>
                 <input
                   id="hindex"
                   className="hindex-input"
@@ -2495,9 +2535,18 @@ function App() {
                   min="0"
                   max="200"
                   value={journalPrefs.hindex}
-                  onChange={function(e) { setJPrefs(function(p) { return { access: p.access, hindex: e.target.value }; }); }}
+                  onChange={function(e) { setJPrefs(function(p) { return Object.assign({}, p, { hindex: e.target.value }); }); }}
                   placeholder="e.g. 12"
                 />
+                <label style={{ display:'flex', alignItems:'center', gap:'.4rem', fontSize:'.8rem', color:'var(--muted)', cursor:'pointer', marginLeft:'.5rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={journalPrefs.oaMandate}
+                    onChange={function(e) { setJPrefs(function(p) { return Object.assign({}, p, { oaMandate: e.target.checked }); }); }}
+                    style={{ accentColor:'var(--accent)', width:'14px', height:'14px' }}
+                  />
+                  Funder requires Open Access
+                </label>
               </div>
               <button className="btn-primary" onClick={runJournals} disabled={!abstract.trim() || journalRunning} aria-busy={journalRunning}>
                 {journalRunning ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Finding journals…</> : 'Find Matching Journals'}
