@@ -1144,7 +1144,7 @@ function promptAbstract(abstract, paperType) {
   var dimList = dimKeys.map(function(k) { return '- ' + k + ': ' + fw.dims[k]; }).join('\n');
   var scoreJson = '{' + dimKeys.map(function(k) { return '"' + k + '":0'; }).join(',') + '}';
   return {
-    system: 'You are an expert academic writing coach. Evaluate the abstract against ' + fw.name + ' criteria and give the author precise feedback on what to add, what to remove, and what to improve. Do NOT rewrite. Return only valid JSON, no markdown.',
+    system: 'You are an expert academic writing coach. Evaluate the abstract against ' + fw.name + ' criteria and give the author precise feedback on what to add, what to remove, and what to improve. Do NOT rewrite or generate any paper content. Return only valid JSON, no markdown.',
     user: 'Evaluate this ' + typeKey.replace('-', ' ') + ' abstract and give the author actionable feedback.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nPAPER TYPE: ' + typeKey.replace('-', ' ') + '\n\n' + fw.name + ' SCORING (each 0-20):\n' + dimList + '\n\nFor every score below 18, add at least one feedback item. Use action "add" for missing content, "remove" for redundant/vague content, "improve" for weak but present content.\n\nReturn JSON exactly:\n{\n  "scores": ' + scoreJson + ',\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "element": "' + dimKeys[0] + '",\n      "action": "add|remove|improve",\n      "severity": "high|medium|low",\n      "note": "Tell the author exactly what content to add, remove, or change — be specific"\n    }\n  ]\n}',
   };
 }
@@ -1156,7 +1156,7 @@ function promptConclusion(conclusion, paperType) {
   var dimList = dimKeys.map(function(k) { return '- ' + k + ': ' + fw.dims[k]; }).join('\n');
   var scoreJson = '{' + dimKeys.map(function(k) { return '"' + k + '":0'; }).join(',') + '}';
   return {
-    system: 'You are an expert academic writing coach. Evaluate the conclusion against ' + fw.name + ' criteria and give the author precise feedback on what to add, what to remove, and what to improve. Do NOT rewrite. Return only valid JSON, no markdown.',
+    system: 'You are an expert academic writing coach. Evaluate the conclusion against ' + fw.name + ' criteria and give the author precise feedback on what to add, what to remove, and what to improve. Do NOT rewrite or generate any paper content. Return only valid JSON, no markdown.',
     user: 'Evaluate this ' + typeKey.replace('-', ' ') + ' conclusion and give the author actionable feedback.\n\nCONCLUSION:\n"""\n' + conclusion + '\n"""\n\nPAPER TYPE: ' + typeKey.replace('-', ' ') + '\n\n' + fw.name + ' SCORING (each 0-20):\n' + dimList + '\n\nFor every score below 18, add at least one feedback item. Use action "add" for missing content, "remove" for redundant/vague content, "improve" for weak but present content.\n\nReturn JSON exactly:\n{\n  "scores": ' + scoreJson + ',\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "element": "' + dimKeys[0] + '",\n      "action": "add|remove|improve",\n      "severity": "high|medium|low",\n      "note": "Tell the author exactly what content to add, remove, or change — be specific"\n    }\n  ]\n}',
   };
 }
@@ -1237,7 +1237,7 @@ function promptChapter(chapterType, text, paperType) {
   var dimList = dimKeys.map(function(k) { return '- ' + k + ': ' + fw.dims[k]; }).join('\n');
   var scoreJson = '{' + dimKeys.map(function(k) { return '"' + k + '":0'; }).join(',') + '}';
   return {
-    system: 'You are an expert academic writing coach. Evaluate the ' + fw.label + ' chapter against the ' + fw.name + ' framework. Give the author precise, actionable feedback on what to add, remove, or improve. Do NOT rewrite any content. Return only valid JSON, no markdown.',
+    system: 'You are an expert academic writing coach. Evaluate the ' + fw.label + ' chapter against the ' + fw.name + ' framework. Give the author precise, actionable feedback on what to add, remove, or improve. Do NOT rewrite or generate any paper content. Return only valid JSON, no markdown.',
     user: 'Evaluate this ' + fw.label + ' chapter.\n\nPAPER TYPE: ' + (paperType || 'article') + '\n\n' + fw.label.toUpperCase() + ':\n"""\n' + text + '\n"""\n\n' + fw.name + ' SCORING (each 0-20):\n' + dimList + '\n\nFor every score below 16, add at least one feedback item. Use action "add" for missing content, "remove" for redundant/vague content, "improve" for present-but-weak content.\n\nReturn JSON exactly:\n{\n  "scores": ' + scoreJson + ',\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "element": "' + dimKeys[0] + '",\n      "action": "add|remove|improve",\n      "severity": "high|medium|low",\n      "note": "Tell the author exactly what to add, remove, or change"\n    }\n  ]\n}',
   };
 }
@@ -1248,7 +1248,7 @@ function promptChapter(chapterType, text, paperType) {
 
 function promptResearchQ(rq, studyType, paperType) {
   return {
-    system: 'You are an expert in research methodology. Evaluate the research question against FINER criteria. Do NOT rewrite the question. Return only valid JSON, no markdown.',
+    system: 'You are an expert in research methodology. Evaluate the research question against FINER criteria. Do NOT rewrite or generate any paper content. Return only valid JSON, no markdown.',
     user: 'Evaluate this research question.\n\nRESEARCH QUESTION:\n"""\n' + rq + '\n"""\n\nSTUDY TYPE: ' + studyType + '\nPAPER TYPE: ' + (paperType || 'article') + '\n\nFINER SCORING (each 0-20):\n- F: Feasible — can this study realistically be conducted with reasonable resources?\n- I: Interesting — does it address something the field currently cares about?\n- N: Novel — does it advance beyond existing knowledge?\n- E: Ethical — can it be conducted without undue risk to participants?\n- R: Relevant — is it relevant to current field priorities?\n\nFor every score below 16, add at least one feedback item.\n\nReturn JSON exactly:\n{\n  "scores": {"F":0,"I":0,"N":0,"E":0,"R":0},\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "criterion": "F|I|N|E|R",\n      "issue": "The specific problem with this criterion",\n      "suggestion": "What to change to improve this score"\n    }\n  ]\n}',
   };
 }
@@ -1259,7 +1259,7 @@ function promptResearchQ(rq, studyType, paperType) {
 
 function promptContribution(abstract, paperType) {
   return {
-    system: 'You are a rigorous peer reviewer. Identify every claim of novelty in the abstract and assess whether the abstract provides evidence for it. Be precise and fair. Return only valid JSON, no markdown.',
+    system: 'You are a rigorous peer reviewer. Identify every claim of novelty in the abstract and assess whether the abstract provides evidence for it. Be precise and fair. Do NOT rewrite or generate any paper content. Return only valid JSON, no markdown.',
     user: 'Analyse this abstract for contribution clarity.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nPAPER TYPE: ' + (paperType || 'article') + '\n\nFor each claim of novelty or contribution:\n1. Quote the exact claim from the abstract\n2. Classify as: supported (abstract provides evidence), asserted (stated without evidence), or vague (unclear whether new)\n3. State specifically what evidence or qualifier would make the claim defensible\n\nAlso give an overall clarity score 0-100.\n\nReturn JSON exactly:\n{\n  "clarity_score": 0,\n  "verdict": "1-2 sentence overall assessment",\n  "claims": [\n    {\n      "quote": "exact text from abstract",\n      "status": "supported|asserted|vague",\n      "advice": "What to add or change to make this claim defensible"\n    }\n  ]\n}',
   };
 }
@@ -1273,7 +1273,7 @@ function promptKeywords(abstract, keywordData, paperType) {
     return '- "' + k.keyword + '" → ' + (k.count !== null ? k.count.toLocaleString() + ' papers indexed' : 'search failed');
   }).join('\n');
   return {
-    system: 'You are an expert in academic information retrieval and keyword optimisation. Evaluate the author\'s keywords and suggest improvements. Return only valid JSON, no markdown.',
+    system: 'You are an expert in academic information retrieval and keyword optimisation. Evaluate the author\'s keywords and suggest improvements. Do NOT rewrite or generate any paper content. Return only valid JSON, no markdown.',
     user: 'Evaluate these keywords for the abstract below.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nPAPER TYPE: ' + (paperType || 'article') + '\n\nKEYWORD PAPER COUNTS (Semantic Scholar):\n' + rows + '\n\nFor each keyword rate specificity: broad (>5000 papers), moderate (500-5000), specific (<500). Judge relevance to this abstract: high/medium/low. Recommend: keep/refine/replace.\n\nAlso suggest 2-3 alternative keywords derived from the abstract that would improve discoverability.\n\nReturn JSON exactly:\n{\n  "overall": "1-2 sentence summary of keyword quality",\n  "keywords": [\n    {\n      "keyword": "",\n      "specificity": "broad|moderate|specific",\n      "relevance": "high|medium|low",\n      "action": "keep|refine|replace",\n      "note": "Why and how to improve"\n    }\n  ],\n  "suggested": [\n    { "keyword": "", "rationale": "Why this term improves discoverability" }\n  ]\n}',
   };
 }
@@ -2421,6 +2421,11 @@ function App() {
           );
         })}
       </div>
+
+      {/* ── No-rewrite notice ── */}
+      <p style={{ fontFamily:'var(--mono)', fontSize:'.68rem', color:'var(--muted)', margin:'-.75rem 0 1.1rem', fontStyle:'italic' }}>
+        This tool evaluates and gives feedback only — it does not write or rewrite any of your paper's content.
+      </p>
 
       {/* ── Mode tabs ── */}
       <div className="mode-tabs" role="tablist">
