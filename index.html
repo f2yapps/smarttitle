@@ -512,7 +512,7 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
 .footer p { margin: 0 0 .75rem; }
 
 /* ── Mode tabs ── */
-.mode-tabs { display: flex; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; margin-bottom: 1.75rem; }
+.mode-tabs { display: flex; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; margin-bottom: 1.75rem; flex-wrap: wrap; }
 .mode-tab { flex: 1; background: none; border: none; border-right: 1px solid var(--border); font-family: var(--sans); font-size: .82rem; font-weight: 500; color: var(--muted); padding: .6rem .5rem; cursor: pointer; transition: all .15s; }
 .mode-tab:last-child { border-right: none; }
 .mode-tab:hover:not(.active) { background: var(--bg); color: var(--ink); }
@@ -574,6 +574,51 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
 .wcount-row { display: flex; gap: 1.5rem; padding: .55rem 1rem; background: var(--bg); border-top: 1px solid #e8d5c4; }
 .wcount-item { font-family: var(--mono); font-size: .7rem; color: var(--muted); }
 .wcount-item strong { color: var(--ink); }
+
+/* ── Sub-tabs (chapter review) ── */
+.sub-tabs { display: flex; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; margin-bottom: 1.25rem; flex-wrap: wrap; }
+.sub-tab { flex: 1; min-width: 80px; background: none; border: none; border-right: 1px solid var(--border); font-family: var(--sans); font-size: .74rem; font-weight: 500; color: var(--muted); padding: .45rem .3rem; cursor: pointer; transition: all .15s; }
+.sub-tab:last-child { border-right: none; }
+.sub-tab:hover:not(.active) { background: var(--bg); color: var(--ink); }
+.sub-tab.active { background: var(--ink); color: #fff; font-weight: 600; }
+
+/* ── Contribution clarity ── */
+.clarity-score-wrap { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.1rem; }
+.clarity-score-big { font-family: var(--mono); font-size: 2.2rem; font-weight: 500; line-height: 1; }
+.clarity-score-lbl { font-size: .75rem; color: var(--muted); }
+.contrib-claim { border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; margin-bottom: .6rem; }
+.contrib-claim:last-child { margin-bottom: 0; }
+.contrib-claim-head { display: flex; align-items: center; padding: .4rem .85rem; background: var(--bg); border-bottom: 1px solid var(--border); }
+.contrib-quote { font-style: italic; font-size: .78rem; color: var(--ink); padding: .55rem .85rem; border-bottom: 1px solid var(--border); background: #fffdf9; line-height: 1.5; }
+.contrib-advice { font-size: .82rem; padding: .55rem .85rem; color: var(--ink); line-height: 1.55; }
+
+/* ── Badge color variants (builds on base .badge) ── */
+.badge-supported { background: #e8f5e9; color: #2d7a3a; border: 1px solid #c3e6cb; }
+.badge-asserted  { background: #fff0f0; color: #c0392b; border: 1px solid #f5c6c6; }
+.badge-vague     { background: #fff3e0; color: #b06000; border: 1px solid #ffe0b2; }
+.badge-broad     { background: #fff0f0; color: #c0392b; border: 1px solid #f5c6c6; }
+.badge-moderate  { background: #fff3e0; color: #b06000; border: 1px solid #ffe0b2; }
+.badge-specific  { background: #e8f5e9; color: #2d7a3a; border: 1px solid #c3e6cb; }
+.badge-keep      { background: #e8f5e9; color: #2d7a3a; border: 1px solid #c3e6cb; }
+.badge-refine    { background: #fff3e0; color: #b06000; border: 1px solid #ffe0b2; }
+.badge-replace   { background: #fff0f0; color: #c0392b; border: 1px solid #f5c6c6; }
+
+/* ── Keyword optimizer ── */
+.kw-list { display: grid; gap: .65rem; margin-bottom: 1.1rem; }
+.kw-card { border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; background: #fff; }
+.kw-card-head { display: flex; align-items: center; justify-content: space-between; padding: .45rem .85rem; background: var(--bg); border-bottom: 1px solid var(--border); gap: .5rem; flex-wrap: wrap; }
+.kw-name { font-family: var(--mono); font-size: .82rem; font-weight: 500; color: var(--ink); }
+.kw-body { padding: .55rem .85rem; font-size: .82rem; line-height: 1.55; color: var(--ink); }
+
+/* ── Research Question ── */
+.rq-score-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: .5rem; margin-bottom: 1.1rem; }
+.rq-criterion { border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; margin-bottom: .6rem; }
+.rq-criterion:last-child { margin-bottom: 0; }
+.rq-crit-head { display: flex; align-items: center; justify-content: space-between; padding: .4rem .85rem; background: var(--bg); border-bottom: 1px solid var(--border); }
+.rq-crit-issue { font-size: .79rem; color: #8b2020; padding: .5rem .85rem; border-bottom: 1px solid var(--border); font-style: italic; background: #fff8f8; }
+.rq-crit-fix { font-size: .82rem; padding: .55rem .85rem; color: var(--ink); line-height: 1.55; }
+.study-type-row { display: flex; gap: .45rem; margin-bottom: .9rem; flex-wrap: wrap; }
+.kw-textarea-label { display: block; font-weight: 600; margin-bottom: .35rem; font-size: .87rem; margin-top: .9rem; }
 
 /* Responsive */
 @media (max-width:600px) {
@@ -1026,6 +1071,85 @@ function promptConclusion(conclusion) {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   CHAPTER REVIEW — FRAMEWORKS + PROMPT
+   ───────────────────────────────────────────────────────────── */
+
+var CHAPTER_FRAMEWORKS = {
+  introduction: {
+    name: 'CARS', label: 'Introduction',
+    dims: { T: 'Territory', N: 'Niche', P: 'Position', S: 'Scope', H: 'Hook' },
+    max: 100
+  },
+  litreview: {
+    name: 'DEPTH', label: 'Literature Review',
+    dims: { D: 'Depth of Critique', E: 'Evidence Quality', P: 'Positioning', T: 'Thematic Structure', H: 'Horizon / Breadth' },
+    max: 100
+  },
+  methods: {
+    name: 'RECIPE', label: 'Methods',
+    dims: { R: 'Reproducibility', E: 'Ethics', C: 'Criteria', I: 'Instruments', P: 'Protocol', V: 'Evidence of Validity' },
+    max: 120
+  },
+  results: {
+    name: 'CLEAR', label: 'Results',
+    dims: { C: 'Complete', L: 'Logical', E: 'Evidence-grounded', A: 'Appropriate Visuals', R: 'Restrained' },
+    max: 100
+  },
+  discussion: {
+    name: 'SODA', label: 'Discussion',
+    dims: { S: 'Summary (non-repetitive)', O: 'Originality', D: 'Depth of Explanation', A: 'Applicability' },
+    max: 80
+  }
+};
+
+function promptChapter(chapterType, text) {
+  var fw = CHAPTER_FRAMEWORKS[chapterType];
+  var dimKeys = Object.keys(fw.dims);
+  var dimList = dimKeys.map(function(k) { return '- ' + k + ': ' + fw.dims[k]; }).join('\n');
+  var scoreJson = '{' + dimKeys.map(function(k) { return '"' + k + '":0'; }).join(',') + '}';
+  return {
+    system: 'You are an expert academic writing coach. Evaluate the ' + fw.label + ' chapter against the ' + fw.name + ' framework. Give the author precise, actionable feedback on what to add, remove, or improve. Do NOT rewrite any content. Return only valid JSON, no markdown.',
+    user: 'Evaluate this ' + fw.label + ' chapter.\n\n' + fw.label.toUpperCase() + ':\n"""\n' + text + '\n"""\n\n' + fw.name + ' SCORING (each 0-20):\n' + dimList + '\n\nFor every score below 16, add at least one feedback item. Use action "add" for missing content, "remove" for redundant/vague content, "improve" for present-but-weak content.\n\nReturn JSON exactly:\n{\n  "scores": ' + scoreJson + ',\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "element": "' + dimKeys[0] + '",\n      "action": "add|remove|improve",\n      "severity": "high|medium|low",\n      "note": "Tell the author exactly what to add, remove, or change"\n    }\n  ]\n}',
+  };
+}
+
+/* ─────────────────────────────────────────────────────────────
+   RESEARCH QUESTION EVALUATOR — PROMPT
+   ───────────────────────────────────────────────────────────── */
+
+function promptResearchQ(rq, studyType) {
+  return {
+    system: 'You are an expert in research methodology. Evaluate the research question against FINER criteria. Do NOT rewrite the question. Return only valid JSON, no markdown.',
+    user: 'Evaluate this research question.\n\nRESEARCH QUESTION:\n"""\n' + rq + '\n"""\n\nSTUDY TYPE: ' + studyType + '\n\nFINER SCORING (each 0-20):\n- F: Feasible — can this study realistically be conducted with reasonable resources?\n- I: Interesting — does it address something the field currently cares about?\n- N: Novel — does it advance beyond existing knowledge?\n- E: Ethical — can it be conducted without undue risk to participants?\n- R: Relevant — is it relevant to current field priorities?\n\nFor every score below 16, add at least one feedback item.\n\nReturn JSON exactly:\n{\n  "scores": {"F":0,"I":0,"N":0,"E":0,"R":0},\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "criterion": "F|I|N|E|R",\n      "issue": "The specific problem with this criterion",\n      "suggestion": "What to change to improve this score"\n    }\n  ]\n}',
+  };
+}
+
+/* ─────────────────────────────────────────────────────────────
+   CONTRIBUTION CLARITY CHECKER — PROMPT
+   ───────────────────────────────────────────────────────────── */
+
+function promptContribution(abstract) {
+  return {
+    system: 'You are a rigorous peer reviewer. Identify every claim of novelty in the abstract and assess whether the abstract provides evidence for it. Be precise and fair. Return only valid JSON, no markdown.',
+    user: 'Analyse this abstract for contribution clarity.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nFor each claim of novelty or contribution:\n1. Quote the exact claim from the abstract\n2. Classify as: supported (abstract provides evidence), asserted (stated without evidence), or vague (unclear whether new)\n3. State specifically what evidence or qualifier would make the claim defensible\n\nAlso give an overall clarity score 0-100.\n\nReturn JSON exactly:\n{\n  "clarity_score": 0,\n  "verdict": "1-2 sentence overall assessment",\n  "claims": [\n    {\n      "quote": "exact text from abstract",\n      "status": "supported|asserted|vague",\n      "advice": "What to add or change to make this claim defensible"\n    }\n  ]\n}',
+  };
+}
+
+/* ─────────────────────────────────────────────────────────────
+   KEYWORDS OPTIMIZER — PROMPT
+   ───────────────────────────────────────────────────────────── */
+
+function promptKeywords(abstract, keywordData) {
+  var rows = keywordData.map(function(k) {
+    return '- "' + k.keyword + '" → ' + (k.count !== null ? k.count.toLocaleString() + ' papers indexed' : 'search failed');
+  }).join('\n');
+  return {
+    system: 'You are an expert in academic information retrieval and keyword optimisation. Evaluate the author\'s keywords and suggest improvements. Return only valid JSON, no markdown.',
+    user: 'Evaluate these keywords for the abstract below.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nKEYWORD PAPER COUNTS (Semantic Scholar):\n' + rows + '\n\nFor each keyword rate specificity: broad (>5000 papers), moderate (500-5000), specific (<500). Judge relevance to this abstract: high/medium/low. Recommend: keep/refine/replace.\n\nAlso suggest 2-3 alternative keywords derived from the abstract that would improve discoverability.\n\nReturn JSON exactly:\n{\n  "overall": "1-2 sentence summary of keyword quality",\n  "keywords": [\n    {\n      "keyword": "",\n      "specificity": "broad|moderate|specific",\n      "relevance": "high|medium|low",\n      "action": "keep|refine|replace",\n      "note": "Why and how to improve"\n    }\n  ],\n  "suggested": [\n    { "keyword": "", "rationale": "Why this term improves discoverability" }\n  ]\n}',
+  };
+}
+
+/* ─────────────────────────────────────────────────────────────
    SMALL UI ATOMS
    ───────────────────────────────────────────────────────────── */
 
@@ -1446,6 +1570,158 @@ function ConclusionResult({ data }) {
   );
 }
 
+function ChapterResult({ data, chapterType }) {
+  var fw = CHAPTER_FRAMEWORKS[chapterType] || CHAPTER_FRAMEWORKS.introduction;
+  var dimKeys = Object.keys(fw.dims);
+  var sc = data.scores || {};
+  var total = dimKeys.reduce(function(acc, k) { return acc + (sc[k] || 0); }, 0);
+  var scoreColor = function(v) { return v >= 16 ? 'var(--accent)' : v >= 10 ? '#b87c00' : '#8b2020'; };
+  var cols = Math.min(dimKeys.length, 5);
+  return (
+    <>
+      <div className="slabel">{fw.name} Scores</div>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat('+cols+',1fr)', gap:'.5rem', marginBottom:'1.1rem' }}>
+        {dimKeys.map(function(k) {
+          return (
+            <div key={k} className="abst-score-box">
+              <span className="abst-score-val" style={{ color: scoreColor(sc[k] || 0) }}>{sc[k] || 0}/20</span>
+              <span className="abst-score-lbl">{fw.dims[k]}</span>
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ fontFamily:'var(--mono)', fontSize:'.78rem', color:'var(--muted)', marginBottom:'.75rem' }}>
+        Total: <strong style={{ color:'var(--accent)' }}>{total}/{fw.max}</strong>
+      </p>
+      {data.verdict && <p className="abst-verdict">{data.verdict}</p>}
+      <WritingFeedback items={data.feedback || []} dimMap={fw.dims} />
+    </>
+  );
+}
+
+function ResearchQResult({ data }) {
+  var FINER = { F: 'Feasible', I: 'Interesting', N: 'Novel', E: 'Ethical', R: 'Relevant' };
+  var sc = data.scores || {};
+  var total = ['F','I','N','E','R'].reduce(function(acc, k) { return acc + (sc[k] || 0); }, 0);
+  var scoreColor = function(v) { return v >= 16 ? 'var(--accent)' : v >= 10 ? '#b87c00' : '#8b2020'; };
+  return (
+    <>
+      <div className="slabel">FINER Scores</div>
+      <div className="rq-score-grid">
+        {['F','I','N','E','R'].map(function(k) {
+          return (
+            <div key={k} className="abst-score-box">
+              <span className="abst-score-val" style={{ color: scoreColor(sc[k] || 0) }}>{sc[k] || 0}/20</span>
+              <span className="abst-score-lbl">{FINER[k]}</span>
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ fontFamily:'var(--mono)', fontSize:'.78rem', color:'var(--muted)', marginBottom:'.75rem' }}>
+        Total: <strong style={{ color:'var(--accent)' }}>{total}/100</strong>
+      </p>
+      {data.verdict && <p className="abst-verdict">{data.verdict}</p>}
+      {(data.feedback || []).length > 0 && (
+        <>
+          <div className="slabel" style={{ marginTop:'.75rem' }}>Feedback</div>
+          <div style={{ display:'grid', gap:'.6rem' }}>
+            {(data.feedback || []).map(function(fb, i) {
+              return (
+                <div key={i} className="rq-criterion">
+                  <div className="rq-crit-head">
+                    <span className="improvement-el">{fb.criterion} — {FINER[fb.criterion] || fb.criterion}</span>
+                  </div>
+                  {fb.issue && <div className="rq-crit-issue">{fb.issue}</div>}
+                  {fb.suggestion && <div className="rq-crit-fix">{fb.suggestion}</div>}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+function ContributionResult({ data }) {
+  var score = data.clarity_score || 0;
+  var scoreColor = score >= 70 ? 'var(--accent)' : score >= 50 ? '#b87c00' : '#8b2020';
+  var statusClass = function(s) {
+    if (s === 'supported') return 'badge badge-supported';
+    if (s === 'asserted')  return 'badge badge-asserted';
+    return 'badge badge-vague';
+  };
+  return (
+    <>
+      <div className="clarity-score-wrap">
+        <span className="clarity-score-big" style={{ color: scoreColor }}>{score}</span>
+        <span className="clarity-score-lbl">/ 100 Contribution Clarity Score</span>
+      </div>
+      {data.verdict && <p className="abst-verdict">{data.verdict}</p>}
+      <div className="slabel">Novelty Claims</div>
+      <div style={{ display:'grid', gap:'.6rem' }}>
+        {(data.claims || []).map(function(c, i) {
+          return (
+            <div key={i} className="contrib-claim">
+              <div className="contrib-claim-head">
+                <span className={statusClass(c.status)}>{c.status}</span>
+              </div>
+              <div className="contrib-quote">"{c.quote}"</div>
+              <div className="contrib-advice">{c.advice}</div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function KeywordsResult({ data }) {
+  var specClass   = function(s) { return 'badge badge-' + (s || 'moderate'); };
+  var actionClass = function(a) { return 'badge badge-' + (a || 'refine'); };
+  return (
+    <>
+      {data.overall && <p className="abst-verdict">{data.overall}</p>}
+      <div className="slabel">Keyword Analysis</div>
+      <div className="kw-list">
+        {(data.keywords || []).map(function(k, i) {
+          return (
+            <div key={i} className="kw-card">
+              <div className="kw-card-head">
+                <span className="kw-name">{k.keyword}</span>
+                <div style={{ display:'flex', gap:'.35rem', flexWrap:'wrap' }}>
+                  {k.specificity && <span className={specClass(k.specificity)}>{k.specificity}</span>}
+                  {k.action && <span className={actionClass(k.action)}>{k.action}</span>}
+                  {k.relevance && <span className="badge" style={{ background:'var(--bg)', border:'1px solid var(--border)', color:'var(--muted)' }}>{k.relevance} relevance</span>}
+                </div>
+              </div>
+              <div className="kw-body">{k.note}</div>
+            </div>
+          );
+        })}
+      </div>
+      {(data.suggested || []).length > 0 && (
+        <>
+          <div className="slabel" style={{ marginTop:'.75rem' }}>Suggested Keywords</div>
+          <div className="kw-list">
+            {(data.suggested || []).map(function(s, i) {
+              return (
+                <div key={i} className="kw-card">
+                  <div className="kw-card-head">
+                    <span className="kw-name" style={{ color:'var(--accent)' }}>+ {s.keyword}</span>
+                    <span className="badge badge-specific">suggested</span>
+                  </div>
+                  <div className="kw-body">{s.rationale}</div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 /* ─────────────────────────────────────────────────────────────
    MAIN APP
    ───────────────────────────────────────────────────────────── */
@@ -1474,6 +1750,23 @@ function App() {
   const [conclusion, setConclusion]     = useState('');
   const [conclusionResult, setConcRes]  = useState(null);
   const [conclusionRunning, setCRunning]= useState(false);
+  // Chapter Review
+  const [chapterType, setChapterType]   = useState('introduction');
+  const [chapterText, setChapterText]   = useState('');
+  const [chapterResult, setChapterRes]  = useState(null);
+  const [chapterRunning, setChRunning]  = useState(false);
+  // Research Question
+  const [rqText, setRqText]             = useState('');
+  const [studyType, setStudyType]       = useState('quantitative');
+  const [rqResult, setRqResult]         = useState(null);
+  const [rqRunning, setRqRunning]       = useState(false);
+  // Contribution Check
+  const [contribResult, setContribRes]  = useState(null);
+  const [contribRunning, setContribRun] = useState(false);
+  // Keywords Optimizer
+  const [keywordsText, setKeywords]     = useState('');
+  const [kwResult, setKwResult]         = useState(null);
+  const [kwRunning, setKwRunning]       = useState(false);
 
   const settingsRef = useRef(null);
   const endRef      = useRef(null);
@@ -1746,17 +2039,129 @@ function App() {
     }
   }
 
+  function openSettings() {
+    setSettings(true);
+    setTimeout(function() {
+      var el = settingsRef.current && settingsRef.current.querySelector('input[type="password"]');
+      if (el) el.focus();
+    }, 150);
+  }
+
+  async function runChapter() {
+    if (!currentKey) { openSettings(); return; }
+    setChRunning(true);
+    setChapterRes({ status: 'loading' });
+    try {
+      var pc = promptChapter(chapterType, chapterText);
+      var result;
+      try {
+        result = await aiJson(selectedModel, currentKey, pc.system, pc.user);
+      } catch(aiErr) {
+        setChapterRes({ status: 'error', error: aiErr.message });
+        return;
+      }
+      setChapterRes({ status: 'done', data: result, chapterType: chapterType });
+    } catch(e) {
+      setChapterRes({ status: 'error', error: e.message });
+    } finally {
+      setChRunning(false);
+    }
+  }
+
+  async function runResearchQ() {
+    if (!currentKey) { openSettings(); return; }
+    setRqRunning(true);
+    setRqResult({ status: 'loading' });
+    try {
+      var pr = promptResearchQ(rqText, studyType);
+      var result;
+      try {
+        result = await aiJson(selectedModel, currentKey, pr.system, pr.user);
+      } catch(aiErr) {
+        setRqResult({ status: 'error', error: aiErr.message });
+        return;
+      }
+      setRqResult({ status: 'done', data: result });
+    } catch(e) {
+      setRqResult({ status: 'error', error: e.message });
+    } finally {
+      setRqRunning(false);
+    }
+  }
+
+  async function runContribution() {
+    if (!currentKey) { openSettings(); return; }
+    setContribRun(true);
+    setContribRes({ status: 'loading' });
+    try {
+      var pc = promptContribution(abstract);
+      var result;
+      try {
+        result = await aiJson(selectedModel, currentKey, pc.system, pc.user);
+      } catch(aiErr) {
+        setContribRes({ status: 'error', error: aiErr.message });
+        return;
+      }
+      setContribRes({ status: 'done', data: result });
+    } catch(e) {
+      setContribRes({ status: 'error', error: e.message });
+    } finally {
+      setContribRun(false);
+    }
+  }
+
+  async function runKeywords() {
+    if (!currentKey) { openSettings(); return; }
+    var kws = keywordsText.split(/[,\n]+/).map(function(k) { return k.trim(); }).filter(Boolean);
+    if (kws.length === 0) return;
+    setKwRunning(true);
+    setKwResult({ status: 'loading', msg: 'Searching Semantic Scholar for each keyword…' });
+    try {
+      var counts = await Promise.all(kws.map(function(kw) {
+        return fetch(S2_BASE + '/paper/search?query=' + encodeURIComponent(kw) + '&fields=paperId&limit=1')
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(d) { return { keyword: kw, count: d ? (d.total || 0) : null }; })
+          .catch(function(e) { return { keyword: kw, count: null }; });
+      }));
+      setKwResult({ status: 'loading', msg: 'Analysing keywords with AI…' });
+      var pk = promptKeywords(abstract, counts);
+      var result;
+      try {
+        result = await aiJson(selectedModel, currentKey, pk.system, pk.user);
+      } catch(aiErr) {
+        setKwResult({ status: 'error', error: aiErr.message });
+        return;
+      }
+      setKwResult({ status: 'done', data: result });
+    } catch(e) {
+      setKwResult({ status: 'error', error: e.message });
+    } finally {
+      setKwRunning(false);
+    }
+  }
+
   function reset() {
     setSteps({});
     setJSteps(null);
     setAbstRes(null);
     setConcRes(null);
+    setChapterRes(null);
+    setRqResult(null);
+    setContribRes(null);
+    setKwResult(null);
     setAbstract('');
     setConclusion('');
+    setChapterText('');
+    setRqText('');
+    setKeywords('');
     setRunning(false);
     setJRunning(false);
     setARunning(false);
     setCRunning(false);
+    setChRunning(false);
+    setRqRunning(false);
+    setContribRun(false);
+    setKwRunning(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -1841,10 +2246,14 @@ function App() {
       {/* ── Mode tabs ── */}
       <div className="mode-tabs" role="tablist">
         {[
-          { key: 'title',      label: 'Title Recommender'  },
-          { key: 'journal',    label: 'Journal Suggester'   },
-          { key: 'abstract',   label: 'Abstract Feedback'   },
-          { key: 'conclusion', label: 'Conclusion Feedback' },
+          { key: 'title',        label: 'Title Recommender'   },
+          { key: 'journal',      label: 'Journal Suggester'   },
+          { key: 'abstract',     label: 'Abstract Feedback'   },
+          { key: 'conclusion',   label: 'Conclusion Feedback' },
+          { key: 'chapter',      label: 'Chapter Review'      },
+          { key: 'research-q',   label: 'Research Question'   },
+          { key: 'contribution', label: 'Contribution Check'  },
+          { key: 'keywords',     label: 'Keywords Optimizer'  },
         ].map(function(m) {
           return (
             <button
@@ -1861,52 +2270,109 @@ function App() {
         })}
       </div>
 
-      {/* ── Conclusion mode: own textarea ── */}
-      {mode === 'conclusion' ? (
+      {/* ── Conclusion mode ── */}
+      {mode === 'conclusion' && (
         <div>
-          <label htmlFor="conclusion-text" style={{ display:'block', fontWeight:600, marginBottom:'.45rem' }}>
-            Conclusion
-          </label>
+          <label htmlFor="conclusion-text" style={{ display:'block', fontWeight:600, marginBottom:'.45rem' }}>Conclusion</label>
           <textarea
             id="conclusion-text"
             value={conclusion}
             onChange={function(e) { setConclusion(e.target.value); }}
             placeholder="Paste your conclusion section here…"
             disabled={conclusionRunning}
-            aria-describedby="cwc"
           />
-          <div id="cwc" className="word-count">
-            {conclusion.trim().split(/\s+/).filter(Boolean).length}{' '}
-            {conclusion.trim().split(/\s+/).filter(Boolean).length === 1 ? 'word' : 'words'}
-          </div>
-          <button
-            className="btn-primary"
-            onClick={runConclusion}
-            disabled={!conclusion.trim() || conclusionRunning}
-            aria-busy={conclusionRunning}
-          >
-            {conclusionRunning
-              ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Analysing…</>
-              : 'Get Conclusion Feedback'}
+          <div className="word-count">{conclusion.trim().split(/\s+/).filter(Boolean).length} words</div>
+          <button className="btn-primary" onClick={runConclusion} disabled={!conclusion.trim() || conclusionRunning} aria-busy={conclusionRunning}>
+            {conclusionRunning ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Analysing…</> : 'Get Conclusion Feedback'}
           </button>
         </div>
-      ) : (
-        /* ── Abstract textarea (title, journal, abstract modes) ── */
+      )}
+
+      {/* ── Chapter Review mode ── */}
+      {mode === 'chapter' && (
         <div>
-          <label htmlFor="abstract" style={{ display:'block', fontWeight:600, marginBottom:'.45rem' }}>
-            Abstract
+          <div className="sub-tabs" role="tablist">
+            {[
+              { key:'introduction', lbl:'Introduction (CARS)'   },
+              { key:'litreview',    lbl:'Lit Review (DEPTH)'    },
+              { key:'methods',      lbl:'Methods (RECIPE)'      },
+              { key:'results',      lbl:'Results (CLEAR)'       },
+              { key:'discussion',   lbl:'Discussion (SODA)'     },
+            ].map(function(ch) {
+              return (
+                <button
+                  key={ch.key}
+                  className={'sub-tab' + (chapterType === ch.key ? ' active' : '')}
+                  onClick={function() { setChapterType(ch.key); setChapterRes(null); }}
+                  role="tab"
+                  type="button"
+                >{ch.lbl}</button>
+              );
+            })}
+          </div>
+          <label htmlFor="chapter-text" style={{ display:'block', fontWeight:600, marginBottom:'.45rem' }}>
+            {(CHAPTER_FRAMEWORKS[chapterType] || {}).label || 'Chapter'} text
           </label>
+          <textarea
+            id="chapter-text"
+            value={chapterText}
+            onChange={function(e) { setChapterText(e.target.value); }}
+            placeholder={'Paste your ' + ((CHAPTER_FRAMEWORKS[chapterType] || {}).label || 'chapter') + ' section here…'}
+            disabled={chapterRunning}
+            style={{ height:'200px' }}
+          />
+          <div className="word-count">{chapterText.trim().split(/\s+/).filter(Boolean).length} words</div>
+          <button className="btn-primary" onClick={runChapter} disabled={!chapterText.trim() || chapterRunning} aria-busy={chapterRunning}>
+            {chapterRunning ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Evaluating…</> : 'Evaluate Chapter'}
+          </button>
+        </div>
+      )}
+
+      {/* ── Research Question mode ── */}
+      {mode === 'research-q' && (
+        <div>
+          <label htmlFor="rq-text" style={{ display:'block', fontWeight:600, marginBottom:'.45rem' }}>Research Question</label>
+          <textarea
+            id="rq-text"
+            value={rqText}
+            onChange={function(e) { setRqText(e.target.value); }}
+            placeholder="Paste your research question here…"
+            disabled={rqRunning}
+            style={{ height:'100px' }}
+          />
+          <div className="word-count">{rqText.trim().split(/\s+/).filter(Boolean).length} words</div>
+          <div className="study-type-row" style={{ marginTop:'.75rem' }}>
+            <span style={{ fontSize:'.8rem', color:'var(--muted)', marginRight:'.2rem' }}>Study type:</span>
+            {['quantitative','qualitative','mixed','review','clinical'].map(function(t) {
+              return (
+                <button
+                  key={t}
+                  className={'filter-btn' + (studyType === t ? ' active' : '')}
+                  onClick={function() { setStudyType(t); }}
+                  type="button"
+                >{t}</button>
+              );
+            })}
+          </div>
+          <button className="btn-primary" onClick={runResearchQ} disabled={!rqText.trim() || rqRunning} aria-busy={rqRunning}>
+            {rqRunning ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Evaluating…</> : 'Evaluate Research Question'}
+          </button>
+        </div>
+      )}
+
+      {/* ── Shared abstract textarea (title / journal / abstract / contribution / keywords) ── */}
+      {(mode === 'title' || mode === 'journal' || mode === 'abstract' || mode === 'contribution' || mode === 'keywords') && (
+        <div>
+          <label htmlFor="abstract" style={{ display:'block', fontWeight:600, marginBottom:'.45rem' }}>Abstract</label>
           {wordCount > 0 && wordCount < 50 && (
-            <div className="warn-box">
-              ⚠ Abstract may be too brief ({wordCount} words). Accuracy may vary — proceed anyway.
-            </div>
+            <div className="warn-box">⚠ Abstract may be too brief ({wordCount} words). Accuracy may vary.</div>
           )}
           <textarea
             id="abstract"
             value={abstract}
             onChange={e => setAbstract(e.target.value)}
             placeholder="Paste your academic abstract here…"
-            disabled={running || journalRunning || abstractRunning}
+            disabled={running || journalRunning || abstractRunning || contribRunning || kwRunning}
             aria-describedby="wc"
           />
           <div id="wc" className={`word-count${wordCount > 0 && wordCount < 50 ? ' warn' : ''}`}>
@@ -1915,9 +2381,7 @@ function App() {
 
           {mode === 'title' && (
             <button className="btn-primary" onClick={run} disabled={!canRun} aria-busy={running}>
-              {running
-                ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Analysing…</>
-                : 'Analyse & Generate Titles'}
+              {running ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Analysing…</> : 'Analyse & Generate Titles'}
             </button>
           )}
 
@@ -1937,9 +2401,7 @@ function App() {
                       className={'filter-btn' + (journalPrefs.access === opt.key ? ' active' : '')}
                       onClick={function() { setJPrefs(function(p) { return { access: opt.key, hindex: p.hindex }; }); }}
                       type="button"
-                    >
-                      {opt.lbl}
-                    </button>
+                    >{opt.lbl}</button>
                   );
                 })}
               </div>
@@ -1956,30 +2418,44 @@ function App() {
                   placeholder="e.g. 12"
                 />
               </div>
-              <button
-                className="btn-primary"
-                onClick={runJournals}
-                disabled={!abstract.trim() || journalRunning}
-                aria-busy={journalRunning}
-              >
-                {journalRunning
-                  ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Finding journals…</>
-                  : 'Find Matching Journals'}
+              <button className="btn-primary" onClick={runJournals} disabled={!abstract.trim() || journalRunning} aria-busy={journalRunning}>
+                {journalRunning ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Finding journals…</> : 'Find Matching Journals'}
               </button>
             </>
           )}
 
           {mode === 'abstract' && (
-            <button
-              className="btn-primary"
-              onClick={runAbstract}
-              disabled={!abstract.trim() || abstractRunning}
-              aria-busy={abstractRunning}
-            >
-              {abstractRunning
-                ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Analysing…</>
-                : 'Get Abstract Feedback'}
+            <button className="btn-primary" onClick={runAbstract} disabled={!abstract.trim() || abstractRunning} aria-busy={abstractRunning}>
+              {abstractRunning ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Analysing…</> : 'Get Abstract Feedback'}
             </button>
+          )}
+
+          {mode === 'contribution' && (
+            <button className="btn-primary" onClick={runContribution} disabled={!abstract.trim() || contribRunning} aria-busy={contribRunning}>
+              {contribRunning ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Analysing…</> : 'Check Contribution Claims'}
+            </button>
+          )}
+
+          {mode === 'keywords' && (
+            <>
+              <label className="kw-textarea-label" htmlFor="kw-text">Your draft keywords <span style={{ fontWeight:400, color:'var(--muted)' }}>(comma or newline separated)</span></label>
+              <textarea
+                id="kw-text"
+                value={keywordsText}
+                onChange={function(e) { setKeywords(e.target.value); }}
+                placeholder="e.g. deep learning, healthcare, medical imaging, neural network"
+                disabled={kwRunning}
+                style={{ height:'80px' }}
+              />
+              <button
+                className="btn-primary"
+                onClick={runKeywords}
+                disabled={!abstract.trim() || !keywordsText.trim() || kwRunning}
+                aria-busy={kwRunning}
+              >
+                {kwRunning ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Analysing…</> : 'Optimize Keywords'}
+              </button>
+            </>
           )}
         </div>
       )}
@@ -2096,21 +2572,66 @@ function App() {
 
       {/* ── Conclusion mode results ── */}
       {mode === 'conclusion' && conclusionResult !== null && <hr className="div" />}
-
       {mode === 'conclusion' && conclusionResult !== null && conclusionResult.status === 'loading' && (
-        <StepCard num={1} title="Conclusion Analysis" status="loading">
-          <Dots text="Evaluating your conclusion…" />
-        </StepCard>
+        <StepCard num={1} title="Conclusion Analysis" status="loading"><Dots text="Evaluating your conclusion…" /></StepCard>
       )}
       {mode === 'conclusion' && conclusionResult !== null && conclusionResult.status === 'error' && (
-        <StepCard num={1} title="Conclusion Analysis" status="error">
-          <div className="error-box">{conclusionResult.error}</div>
-        </StepCard>
+        <StepCard num={1} title="Conclusion Analysis" status="error"><div className="error-box">{conclusionResult.error}</div></StepCard>
       )}
       {mode === 'conclusion' && conclusionResult !== null && conclusionResult.status === 'done' && (
-        <StepCard num={1} title="Conclusion Feedback" status="done">
-          <ConclusionResult data={conclusionResult.data} />
+        <StepCard num={1} title="Conclusion Feedback" status="done"><ConclusionResult data={conclusionResult.data} /></StepCard>
+      )}
+
+      {/* ── Chapter Review results ── */}
+      {mode === 'chapter' && chapterResult !== null && <hr className="div" />}
+      {mode === 'chapter' && chapterResult !== null && chapterResult.status === 'loading' && (
+        <StepCard num={1} title="Chapter Evaluation" status="loading">
+          <Dots text={'Evaluating your ' + ((CHAPTER_FRAMEWORKS[chapterType] || {}).label || 'chapter') + '…'} />
         </StepCard>
+      )}
+      {mode === 'chapter' && chapterResult !== null && chapterResult.status === 'error' && (
+        <StepCard num={1} title="Chapter Evaluation" status="error"><div className="error-box">{chapterResult.error}</div></StepCard>
+      )}
+      {mode === 'chapter' && chapterResult !== null && chapterResult.status === 'done' && (
+        <StepCard num={1} title={(CHAPTER_FRAMEWORKS[chapterResult.chapterType] || {}).label + ' — ' + (CHAPTER_FRAMEWORKS[chapterResult.chapterType] || {}).name + ' Feedback'} status="done">
+          <ChapterResult data={chapterResult.data} chapterType={chapterResult.chapterType} />
+        </StepCard>
+      )}
+
+      {/* ── Research Question results ── */}
+      {mode === 'research-q' && rqResult !== null && <hr className="div" />}
+      {mode === 'research-q' && rqResult !== null && rqResult.status === 'loading' && (
+        <StepCard num={1} title="Research Question Evaluation" status="loading"><Dots text="Evaluating against FINER criteria…" /></StepCard>
+      )}
+      {mode === 'research-q' && rqResult !== null && rqResult.status === 'error' && (
+        <StepCard num={1} title="Research Question Evaluation" status="error"><div className="error-box">{rqResult.error}</div></StepCard>
+      )}
+      {mode === 'research-q' && rqResult !== null && rqResult.status === 'done' && (
+        <StepCard num={1} title="FINER Feedback" status="done"><ResearchQResult data={rqResult.data} /></StepCard>
+      )}
+
+      {/* ── Contribution Check results ── */}
+      {mode === 'contribution' && contribResult !== null && <hr className="div" />}
+      {mode === 'contribution' && contribResult !== null && contribResult.status === 'loading' && (
+        <StepCard num={1} title="Contribution Analysis" status="loading"><Dots text="Identifying and evaluating novelty claims…" /></StepCard>
+      )}
+      {mode === 'contribution' && contribResult !== null && contribResult.status === 'error' && (
+        <StepCard num={1} title="Contribution Analysis" status="error"><div className="error-box">{contribResult.error}</div></StepCard>
+      )}
+      {mode === 'contribution' && contribResult !== null && contribResult.status === 'done' && (
+        <StepCard num={1} title="Contribution Clarity Report" status="done"><ContributionResult data={contribResult.data} /></StepCard>
+      )}
+
+      {/* ── Keywords Optimizer results ── */}
+      {mode === 'keywords' && kwResult !== null && <hr className="div" />}
+      {mode === 'keywords' && kwResult !== null && kwResult.status === 'loading' && (
+        <StepCard num={1} title="Keywords Analysis" status="loading"><Dots text={kwResult.msg || 'Analysing keywords…'} /></StepCard>
+      )}
+      {mode === 'keywords' && kwResult !== null && kwResult.status === 'error' && (
+        <StepCard num={1} title="Keywords Analysis" status="error"><div className="error-box">{kwResult.error}</div></StepCard>
+      )}
+      {mode === 'keywords' && kwResult !== null && kwResult.status === 'done' && (
+        <StepCard num={1} title="Keywords Report" status="done"><KeywordsResult data={kwResult.data} /></StepCard>
       )}
 
       <div ref={endRef} />
@@ -2125,7 +2646,7 @@ function App() {
             {(MODELS.find(function(m) { return m.id === selectedModel; }) || {}).label || selectedModel}
           </span>
         </p>
-        {(Object.keys(s).length > 0 || journalSteps !== null || abstractResult !== null || conclusionResult !== null) && (
+        {(Object.keys(s).length > 0 || journalSteps !== null || abstractResult !== null || conclusionResult !== null || chapterResult !== null || rqResult !== null || contribResult !== null || kwResult !== null) && (
           <button className="btn-ghost" onClick={reset}>↺ Start over</button>
         )}
       </footer>
