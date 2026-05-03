@@ -1085,11 +1085,16 @@ function prompt3(abstract, field, corpus, aiStructure, decomp, rel5papers, paper
 
 async function fetchJournals(query) {
   const url = 'https://api.openalex.org/sources?search=' + encodeURIComponent(query) +
-    '&filter=type:journal&per-page=20&sort=cited_by_count:desc&select=id,display_name,publisher,is_oa,summary_stats,apc_usd,apc_prices&mailto=support@f2yapps.com';
+    '&filter=type:journal&per-page=20&select=id,display_name,publisher,is_oa,summary_stats,apc_usd,apc_prices,cited_by_count&mailto=support@f2yapps.com';
   const res = await fetch(url);
-  if (!res.ok) throw new Error('OpenAlex ' + res.status);
+  if (!res.ok) {
+    const body = await res.text().catch(function(e) { return ''; });
+    throw new Error('OpenAlex ' + res.status + (body ? ' — ' + body.slice(0, 200) : ''));
+  }
   const data = await res.json();
-  return (data.results || []).filter(function(j) { return j.display_name; }).slice(0, 15);
+  var results = (data.results || []).filter(function(j) { return j.display_name; });
+  results.sort(function(a, b) { return (b.cited_by_count || 0) - (a.cited_by_count || 0); });
+  return results.slice(0, 15);
 }
 
 function promptJournal1(abstract) {
@@ -2079,6 +2084,7 @@ function App() {
       setJSteps({ status: 'loading', msg: 'Searching journal databases…' });
       var allJournals = [];
       var terms = fieldInfo.search_terms || [fieldInfo.field || 'academic research'];
+      var lastFetchErr = null;
 
       for (var ti = 0; ti < Math.min(terms.length, 2); ti++) {
         try {
@@ -2090,14 +2096,14 @@ function App() {
             }
             if (!dup) allJournals.push(batch[bi]);
           }
-        } catch(te) { /* skip failed term */ }
+        } catch(te) { lastFetchErr = te; }
       }
 
       if (allJournals.length === 0) {
         try {
           allJournals = await fetchJournals(fieldInfo.field || abstract.split(' ').slice(0, 4).join(' '));
         } catch(fallbackErr) {
-          setJSteps({ status: 'error', error: 'Journal search failed. Check your internet connection.' });
+          setJSteps({ status: 'error', error: 'Journal database error: ' + fallbackErr.message });
           return;
         }
       }
