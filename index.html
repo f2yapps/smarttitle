@@ -1,0 +1,2141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TitleSmart — Academic Title Recommender</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+:root {
+  --bg:       #f5f2eb;
+  --ink:      #0f0e0c;
+  --accent:   #c4541a;
+  --muted:    #6b6560;
+  --border:   #ddd8cf;
+  --card:     #faf9f5;
+  --hi:       #fef3ec;
+  --serif:    'DM Serif Display', serif;
+  --sans:     'Instrument Sans', sans-serif;
+  --mono:     'DM Mono', monospace;
+  --r:        4px;
+  --shadow:   0 1px 3px rgba(15,14,12,.08);
+}
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Layout */
+.container { max-width: 740px; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+
+/* Header */
+.header {
+  text-align: center;
+  margin-bottom: 2.5rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--border);
+}
+.header .eyebrow {
+  font-family: var(--mono);
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  color: var(--muted);
+  margin: 0 0 .6rem;
+}
+.header h1 {
+  font-family: var(--serif);
+  font-size: 3rem;
+  font-weight: 400;
+  margin: 0 0 .35rem;
+  letter-spacing: -.5px;
+}
+.header h1 em { font-style: normal; color: var(--accent); }
+.header .tagline { color: var(--muted); font-size: .9rem; margin: 0; font-style: italic; }
+
+/* Settings toggle */
+.settings-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: .8rem;
+  padding: .3rem .75rem;
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+  margin-bottom: .75rem;
+}
+.settings-toggle:hover { color: var(--ink); border-color: var(--ink); }
+.settings-toggle.needs-key { border-color: var(--accent); color: var(--accent); }
+
+/* Settings panel */
+.settings-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  animation: fadeUp .2s ease;
+}
+.settings-panel .field-label {
+  display: block;
+  font-size: .75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin-bottom: .4rem;
+}
+.key-note { font-size: .75rem; color: var(--muted); margin-top: .5rem; font-style: italic; }
+
+/* Model picker */
+.model-picker { display: grid; grid-template-columns: 1fr 1fr; gap: .65rem; }
+.model-group {}
+.model-group-label { font-family: var(--mono); font-size: .65rem; font-weight: 500; text-transform: uppercase; letter-spacing: .1em; display: block; margin-bottom: .35rem; }
+.model-group-btns { display: flex; flex-direction: column; gap: .3rem; }
+.model-btn {
+  background: #fff;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: .78rem;
+  padding: .32rem .7rem;
+  border-radius: var(--r);
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  transition: border-color .12s, color .12s, background .12s;
+}
+.model-btn:hover { border-color: var(--ink); color: var(--ink); }
+.model-btn.active { font-weight: 600; }
+.model-badge {
+  font-family: var(--mono);
+  font-size: .58rem;
+  background: var(--hi);
+  color: var(--accent);
+  border: 1px solid rgba(196,84,26,.2);
+  padding: .08rem .35rem;
+  border-radius: 2px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+@media (max-width:480px) { .model-picker { grid-template-columns: 1fr; } }
+
+/* Inputs */
+input[type="password"], textarea {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: .9rem;
+  padding: .6rem .85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: #fff;
+  color: var(--ink);
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+input[type="password"]:focus, textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(196,84,26,.12);
+}
+textarea { height: 160px; resize: vertical; line-height: 1.7; }
+
+/* Word count */
+.word-count {
+  font-family: var(--mono);
+  font-size: .7rem;
+  color: var(--muted);
+  text-align: right;
+  margin-top: .3rem;
+}
+.word-count.warn { color: #b87c00; }
+
+/* Buttons */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  font-family: var(--sans);
+  font-size: .9rem;
+  font-weight: 600;
+  padding: .7rem 1.6rem;
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: background .15s;
+  margin-top: .9rem;
+}
+.btn-primary:hover:not(:disabled) { background: #a83f13; }
+.btn-primary:disabled { opacity: .42; cursor: not-allowed; }
+
+.btn-ghost {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: .8rem;
+  padding: .38rem .9rem;
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: border-color .15s;
+}
+.btn-ghost:hover { border-color: var(--ink); }
+
+.btn-copy {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: .68rem;
+  padding: .25rem .65rem;
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.btn-copy:hover { border-color: var(--accent); color: var(--accent); }
+.btn-copy.copied { border-color: #2d7a3a; color: #2d7a3a; }
+
+/* Step cards */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.step-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  margin-bottom: 1.5rem;
+  animation: fadeUp .35s ease;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.step-head {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  padding: .85rem 1.2rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.step-badge {
+  font-family: var(--mono);
+  font-size: .65rem;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--hi);
+  border: 1px solid rgba(196,84,26,.25);
+  padding: .12rem .45rem;
+  border-radius: 2px;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+.step-head h2 {
+  font-family: var(--serif);
+  font-size: 1rem;
+  font-weight: 400;
+  margin: 0;
+  flex: 1;
+}
+.step-check {
+  font-size: .75rem;
+  color: #2d7a3a;
+  font-family: var(--mono);
+}
+.step-body { padding: 1.2rem; }
+
+/* Loading dots */
+@keyframes blink {
+  0%,80%,100% { opacity: 0; }
+  40% { opacity: 1; }
+}
+.dots {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+}
+.dots span {
+  display: inline-block;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--muted);
+  animation: blink 1.4s infinite;
+}
+.dots span:nth-child(2) { animation-delay: .2s; }
+.dots span:nth-child(3) { animation-delay: .4s; }
+.loading-row {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  color: var(--muted);
+  font-size: .85rem;
+}
+
+/* Chips */
+.chips { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .4rem; }
+.chip {
+  font-family: var(--mono);
+  font-size: .68rem;
+  padding: .18rem .55rem;
+  border-radius: 2px;
+  background: var(--hi);
+  border: 1px solid rgba(196,84,26,.2);
+  color: var(--accent);
+}
+.chip.neutral {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+/* Section label */
+.slabel {
+  font-family: var(--mono);
+  font-size: .67rem;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--muted);
+  margin-bottom: .5rem;
+}
+
+/* Two-col grid */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+.field-item label {
+  display: block;
+  font-size: .7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin-bottom: .18rem;
+}
+.field-item p { margin: 0; font-size: .9rem; font-weight: 500; }
+
+/* Papers table */
+.papers-wrap { overflow-x: auto; }
+.papers-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.papers-table th {
+  text-align: left;
+  font-family: var(--mono);
+  font-size: .64rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  padding: .45rem .7rem;
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+}
+.papers-table td { padding: .45rem .7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+.papers-table tr:last-child td { border-bottom: none; }
+.papers-table tr.hl { background: var(--hi); }
+.p-rank { font-family: var(--mono); color: var(--muted); font-size: .7rem; }
+.p-year { white-space: nowrap; color: var(--muted); font-size: .78rem; }
+.p-cites { font-family: var(--mono); text-align: right; white-space: nowrap; }
+.p-cites.hot { color: var(--accent); font-weight: 500; }
+
+/* Mining stats */
+.stats-row { display: grid; grid-template-columns: repeat(3,1fr); gap: .85rem; margin-bottom: 1.2rem; }
+.stat-box {
+  text-align: center;
+  padding: .7rem .5rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+}
+.stat-val { font-family: var(--mono); font-size: 1.35rem; font-weight: 500; color: var(--accent); display: block; }
+.stat-lbl { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.pattern-box {
+  font-family: var(--mono);
+  font-size: .8rem;
+  padding: .6rem .85rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  margin-bottom: 1.2rem;
+  color: var(--ink);
+  line-height: 1.5;
+}
+.vocab-block { margin-bottom: 1rem; }
+.vocab-block h4 { font-family: var(--mono); font-size: .67rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 .4rem; }
+
+/* Abstract decomposition */
+.decomp-list { display: grid; gap: .65rem; }
+.decomp-row {
+  display: grid;
+  grid-template-columns: 145px 1fr;
+  gap: .65rem;
+  padding: .65rem .85rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+}
+.decomp-key { font-family: var(--mono); font-size: .68rem; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; padding-top: .1rem; }
+.decomp-val { font-size: .87rem; line-height: 1.55; margin: 0; }
+
+/* Title recommendation cards */
+.title-card {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  margin-bottom: 1.2rem;
+  background: #fff;
+}
+.title-card:last-child { margin-bottom: 0; }
+.title-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: .55rem .9rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.title-type-badge {
+  font-family: var(--mono);
+  font-size: .65rem;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--muted);
+}
+.title-text-big {
+  font-family: var(--serif);
+  font-size: 1.25rem;
+  font-weight: 400;
+  line-height: 1.4;
+  padding: .95rem 1rem;
+  margin: 0;
+  color: var(--ink);
+  border-bottom: 1px solid var(--border);
+}
+.title-smart-section { padding: .95rem 1rem; }
+
+/* SMART bars */
+.smart-row {
+  display: grid;
+  grid-template-columns: 22px 1fr 56px;
+  align-items: center;
+  gap: .7rem;
+  margin-bottom: .45rem;
+}
+.smart-row:last-of-type { margin-bottom: 0; }
+.smart-dim-label { font-family: var(--mono); font-size: .72rem; font-weight: 500; color: var(--muted); text-align: right; }
+.smart-track { height: 7px; background: var(--border); border-radius: 99px; overflow: hidden; }
+.smart-fill { height: 100%; border-radius: 99px; transition: width .5s cubic-bezier(.4,0,.2,1); }
+.smart-fill.hi  { background: var(--accent); }
+.smart-fill.mid { background: #e8a87c; }
+.smart-fill.lo  { background: #c9bfb3; }
+.smart-score-label { font-family: var(--mono); font-size: .7rem; color: var(--muted); text-align: right; }
+.smart-na { font-family: var(--mono); font-size: .65rem; color: var(--muted); font-style: italic; }
+.smart-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: .55rem;
+  margin-top: .55rem;
+  border-top: 1px solid var(--border);
+}
+.smart-total-lbl { font-family: var(--mono); font-size: .68rem; font-weight: 500; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.smart-total-num { font-family: var(--mono); font-size: 1rem; font-weight: 500; color: var(--accent); }
+.fix-notes-section { padding: .7rem 1rem; border-top: 1px solid var(--border); background: #fffaf7; }
+.fix-note { font-size: .77rem; color: var(--muted); margin: 0 0 .28rem; padding-left: 1rem; position: relative; line-height: 1.5; }
+.fix-note:last-child { margin-bottom: 0; }
+.fix-note::before { content: '↑'; position: absolute; left: 0; color: var(--accent); font-size: .7rem; }
+.title-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: .5rem .9rem;
+  border-top: 1px solid var(--border);
+  gap: .5rem;
+}
+.justification-text { font-size: .8rem; color: var(--muted); line-height: 1.5; font-style: italic; flex: 1; }
+
+/* Winner */
+.winner-wrap { border: 2px solid var(--accent); border-radius: var(--r); overflow: hidden; }
+.winner-banner {
+  background: var(--accent);
+  color: #fff;
+  padding: .55rem 1rem;
+  font-family: var(--mono);
+  font-size: .68rem;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+}
+.winner-title {
+  font-family: var(--serif);
+  font-size: 1.5rem;
+  font-weight: 400;
+  line-height: 1.35;
+  padding: 1.15rem;
+  margin: 0;
+  border-bottom: 1px solid #e8d5c4;
+  background: var(--hi);
+}
+.winner-just { padding: .95rem 1.15rem; font-size: .87rem; line-height: 1.7; margin: 0; }
+.winner-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: .5rem 1rem;
+  border-top: 1px solid #e8d5c4;
+  background: var(--hi);
+}
+
+/* Alerts */
+.error-box { background: #fff5f5; border: 1px solid #f5c2c2; border-radius: var(--r); padding: .7rem .9rem; font-size: .82rem; color: #8b2020; }
+.warn-box  { background: #fffbee; border: 1px solid #f0e0a0; border-radius: var(--r); padding: .55rem .85rem; font-size: .78rem; color: #7a6000; margin-bottom: .75rem; }
+
+/* Divider */
+hr.div { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+
+/* Footer */
+.footer { text-align: center; padding-top: 2rem; border-top: 1px solid var(--border); color: var(--muted); font-size: .78rem; }
+.footer p { margin: 0 0 .75rem; }
+
+/* ── Mode tabs ── */
+.mode-tabs { display: flex; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; margin-bottom: 1.75rem; }
+.mode-tab { flex: 1; background: none; border: none; border-right: 1px solid var(--border); font-family: var(--sans); font-size: .82rem; font-weight: 500; color: var(--muted); padding: .6rem .5rem; cursor: pointer; transition: all .15s; }
+.mode-tab:last-child { border-right: none; }
+.mode-tab:hover:not(.active) { background: var(--bg); color: var(--ink); }
+.mode-tab.active { background: var(--accent); color: #fff; font-weight: 600; }
+
+/* ── Journal filter options ── */
+.filter-row { display: flex; gap: .45rem; margin-bottom: .9rem; flex-wrap: wrap; }
+.filter-btn { background: none; border: 1px solid var(--border); color: var(--muted); font-family: var(--sans); font-size: .78rem; padding: .3rem .75rem; border-radius: 99px; cursor: pointer; transition: all .12s; }
+.filter-btn.active { border-color: var(--accent); color: var(--accent); background: var(--hi); font-weight: 600; }
+.hindex-row { display: flex; align-items: center; gap: .6rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.hindex-row label { font-size: .8rem; color: var(--muted); white-space: nowrap; }
+.hindex-input { width: 72px; font-family: var(--mono); font-size: .85rem; padding: .3rem .5rem; border: 1px solid var(--border); border-radius: var(--r); text-align: center; background: #fff; color: var(--ink); outline: none; }
+.hindex-input:focus { border-color: var(--accent); }
+
+/* ── Journal cards ── */
+.journal-list { display: grid; gap: .9rem; }
+.journal-card { border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; background: #fff; }
+.journal-card-head { display: flex; align-items: flex-start; justify-content: space-between; padding: .85rem 1rem; border-bottom: 1px solid var(--border); gap: .65rem; }
+.journal-name { font-family: var(--serif); font-size: 1.05rem; font-weight: 400; margin: 0 0 .15rem; }
+.journal-publisher { font-size: .73rem; color: var(--muted); margin: 0; }
+.journal-badges { display: flex; flex-direction: column; align-items: flex-end; gap: .3rem; flex-shrink: 0; }
+.badge { font-family: var(--mono); font-size: .61rem; text-transform: uppercase; letter-spacing: .07em; padding: .14rem .45rem; border-radius: 2px; white-space: nowrap; }
+.badge-oa     { background: #e8f5e9; color: #2d7a3a; border: 1px solid #c3e6cb; }
+.badge-sub    { background: #e8f0fe; color: #1a56d6; border: 1px solid #c5d8fd; }
+.badge-hybrid { background: #fff3e0; color: #b06000; border: 1px solid #ffe0b2; }
+.tier-safe    { background: #e8f5e9; color: #2d7a3a; border: 1px solid #c3e6cb; }
+.tier-good    { background: var(--hi);  color: var(--accent); border: 1px solid rgba(196,84,26,.25); }
+.tier-stretch { background: #fff3e0; color: #b06000; border: 1px solid #ffe0b2; }
+.journal-body { padding: .85rem 1rem; }
+.journal-meta { display: grid; grid-template-columns: repeat(3,1fr); gap: .5rem; margin-bottom: .85rem; }
+.jmeta { text-align: center; padding: .45rem .3rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); }
+.jmeta-val { font-family: var(--mono); font-size: .9rem; font-weight: 500; color: var(--accent); display: block; }
+.jmeta-lbl { font-size: .62rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.fit-row { display: flex; align-items: center; gap: .55rem; margin-bottom: .4rem; }
+.fit-lbl { font-family: var(--mono); font-size: .64rem; text-transform: uppercase; color: var(--muted); width: 100px; flex-shrink: 0; }
+.fit-track { flex: 1; height: 5px; background: var(--border); border-radius: 99px; overflow: hidden; }
+.fit-fill { height: 100%; border-radius: 99px; transition: width .5s; }
+.fit-pct { font-family: var(--mono); font-size: .68rem; color: var(--muted); width: 32px; text-align: right; }
+.journal-why { font-size: .84rem; line-height: 1.62; color: var(--ink); margin: .8rem 0 0; }
+
+/* ── Abstract improvement ── */
+.abst-score-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: .5rem; margin-bottom: 1.1rem; }
+.abst-score-box { text-align: center; padding: .5rem .3rem; border: 1px solid var(--border); border-radius: var(--r); background: var(--bg); }
+.abst-score-val { font-family: var(--mono); font-size: 1.1rem; font-weight: 500; display: block; }
+.abst-score-lbl { font-size: .62rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.abst-verdict { font-size: .84rem; color: var(--muted); font-style: italic; margin: 0 0 1.1rem; line-height: 1.55; }
+.improvement-list { display: grid; gap: .6rem; margin-bottom: 1.1rem; }
+.improvement-item { border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+.improvement-head { display: flex; align-items: center; justify-content: space-between; padding: .4rem .85rem; background: var(--bg); border-bottom: 1px solid var(--border); }
+.improvement-el { font-family: var(--mono); font-size: .67rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.severity-high   { font-family: var(--mono); font-size: .62rem; padding: .1rem .4rem; border-radius: 2px; background: #fff0f0; color: #c0392b; border: 1px solid #f5c6c6; }
+.severity-medium { font-family: var(--mono); font-size: .62rem; padding: .1rem .4rem; border-radius: 2px; background: #fff3e0; color: #b06000; border: 1px solid #ffe0b2; }
+.severity-low    { font-family: var(--mono); font-size: .62rem; padding: .1rem .4rem; border-radius: 2px; background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+.improvement-issue { font-size: .79rem; color: #8b2020; padding: .5rem .85rem; border-bottom: 1px solid var(--border); font-style: italic; background: #fff8f8; }
+.improvement-fix   { font-size: .82rem; color: var(--ink); padding: .55rem .85rem; line-height: 1.55; }
+.rewritten-wrap { border: 2px solid var(--accent); border-radius: var(--r); overflow: hidden; }
+.rewritten-banner { background: var(--accent); color: #fff; padding: .5rem 1rem; font-family: var(--mono); font-size: .67rem; text-transform: uppercase; letter-spacing: .12em; display: flex; align-items: center; justify-content: space-between; }
+.rewritten-body { padding: 1.1rem; font-size: .9rem; line-height: 1.75; background: var(--hi); white-space: pre-wrap; }
+.wcount-row { display: flex; gap: 1.5rem; padding: .55rem 1rem; background: var(--bg); border-top: 1px solid #e8d5c4; }
+.wcount-item { font-family: var(--mono); font-size: .7rem; color: var(--muted); }
+.wcount-item strong { color: var(--ink); }
+
+/* Responsive */
+@media (max-width:600px) {
+  .header h1 { font-size: 2.2rem; }
+  .two-col { grid-template-columns: 1fr; }
+  .stats-row { grid-template-columns: 1fr 1fr; }
+  .decomp-row { grid-template-columns: 1fr; }
+  .smart-row { grid-template-columns: 18px 1fr 48px; }
+  .title-text-big { font-size: 1.1rem; }
+  .winner-title { font-size: 1.25rem; }
+  .abst-score-grid { grid-template-columns: repeat(3,1fr); }
+  .mode-tab { font-size: .73rem; padding: .55rem .3rem; }
+  .journal-meta { grid-template-columns: repeat(3,1fr); }
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react,env">
+/* =============================================================
+   TitleSmart — Academic Title Recommender
+   Multi-model: Groq/Meta (default), Claude, GPT-4o, Gemini
+   ============================================================= */
+
+const { useState, useEffect, useRef, useCallback } = React;
+
+const S2_BASE = 'https://api.semanticscholar.org/graph/v1';
+
+/* Model registry — add or remove entries here to customise */
+const MODELS = [
+  { id: 'llama-3.3-70b-versatile',    label: 'Llama 3.3 70B',    provider: 'groq',   badge: 'Recommended' },
+  { id: 'llama-3.1-8b-instant',       label: 'Llama 3.1 8B',     provider: 'groq'   },
+  { id: 'mixtral-8x7b-32768',         label: 'Mixtral 8x7B',     provider: 'groq'   },
+  { id: 'claude-sonnet-4-5',          label: 'Claude Sonnet',    provider: 'claude' },
+  { id: 'claude-haiku-4-5-20251001',  label: 'Claude Haiku',     provider: 'claude' },
+  { id: 'gpt-4o',                     label: 'GPT-4o',           provider: 'openai' },
+  { id: 'gpt-4o-mini',                label: 'GPT-4o Mini',      provider: 'openai' },
+  { id: 'gemini-2.0-flash',           label: 'Gemini 2.0 Flash', provider: 'gemini' },
+  { id: 'gemini-1.5-pro',             label: 'Gemini 1.5 Pro',   provider: 'gemini' },
+];
+
+const PROVIDERS = {
+  groq:   { label: 'Groq / Meta', color: '#f55036', placeholder: 'gsk_…',    note: 'Get your free key at console.groq.com' },
+  claude: { label: 'Anthropic',   color: '#c4541a', placeholder: 'sk-ant-…', note: 'Get your key at console.anthropic.com' },
+  openai: { label: 'OpenAI',      color: '#10a37f', placeholder: 'sk-…',     note: 'Get your key at platform.openai.com' },
+  gemini: { label: 'Google',      color: '#1a73e8', placeholder: 'AIza…',    note: 'Get your key at aistudio.google.com' },
+};
+
+const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
+
+function modelProvider(modelId) {
+  const m = MODELS.find(function(x) { return x.id === modelId; });
+  return m ? m.provider : 'groq';
+}
+
+/* ─────────────────────────────────────────────────────────────
+   MULTI-PROVIDER AI CALLER
+   ───────────────────────────────────────────────────────────── */
+
+// Routes a system+user prompt to the correct provider API.
+async function callAI(modelId, apiKey, system, user) {
+  const provider = modelProvider(modelId);
+
+  /* ── Anthropic / Claude ── */
+  if (provider === 'claude') {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: modelId,
+        max_tokens: 4096,
+        system: system,
+        messages: [{ role: 'user', content: user }],
+      }),
+    });
+    if (!res.ok) {
+      const b = await res.text().catch(function() { return ''; });
+      throw new Error('Anthropic ' + res.status + ': ' + b.slice(0, 300));
+    }
+    const d = await res.json();
+    return d.content[0].text;
+  }
+
+  /* ── Google / Gemini ── */
+  if (provider === 'gemini') {
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + modelId + ':generateContent?key=' + apiKey;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: system }] },
+        contents: [{ parts: [{ text: user }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
+      }),
+    });
+    if (!res.ok) {
+      const b = await res.text().catch(function() { return ''; });
+      throw new Error('Gemini ' + res.status + ': ' + b.slice(0, 300));
+    }
+    const d = await res.json();
+    return d.candidates[0].content.parts[0].text;
+  }
+
+  /* ── Groq / OpenAI — both use OpenAI-compatible format ── */
+  const baseUrl = provider === 'openai'
+    ? 'https://api.openai.com/v1/chat/completions'
+    : 'https://api.groq.com/openai/v1/chat/completions';
+  const res = await fetch(baseUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + apiKey,
+    },
+    body: JSON.stringify({
+      model: modelId,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user',   content: user },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const b = await res.text().catch(function() { return ''; });
+    throw new Error(PROVIDERS[provider].label + ' API ' + res.status + ': ' + b.slice(0, 300));
+  }
+  const d = await res.json();
+  return d.choices[0].message.content;
+}
+
+// Parses JSON from an AI response — handles markdown code fences.
+function parseJson(text) {
+  const t = text.trim();
+  try { return JSON.parse(t); } catch(e1) {}
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) { try { return JSON.parse(fence[1].trim()); } catch(e2) {} }
+  const obj = t.match(/\{[\s\S]*\}/);
+  if (obj) { try { return JSON.parse(obj[0]); } catch(e3) {} }
+  throw new Error('Could not parse JSON. Raw response: ' + t.slice(0, 400));
+}
+
+// AI call + JSON parse with one automatic retry on malformed JSON.
+async function aiJson(modelId, apiKey, system, user) {
+  const text = await callAI(modelId, apiKey, system, user);
+  try {
+    return parseJson(text);
+  } catch(parseErr) {
+    const retry = await callAI(
+      modelId, apiKey, system,
+      user + '\n\nIMPORTANT: Return ONLY valid JSON. No markdown. No code fences. No extra text.'
+    );
+    return parseJson(retry);
+  }
+}
+
+// Searches Semantic Scholar and returns papers sorted by citation count.
+async function fetchPapers(query, broad) {
+  var q = broad ? query.split(/\s+/).slice(0, 4).join(' ') : query;
+  var url = S2_BASE + '/paper/search?query=' + encodeURIComponent(q) + '&fields=title,citationCount,year,venue&limit=100';
+  var res = await fetch(url);
+  if (!res.ok) throw new Error('Semantic Scholar ' + res.status);
+  var data = await res.json();
+  return (data.data || [])
+    .filter(function(p) { return p.title && p.citationCount != null; })
+    .sort(function(a, b) { return (b.citationCount || 0) - (a.citationCount || 0); })
+    .slice(0, 20);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   CORPUS PRE-COMPUTATION (JavaScript — no AI involved)
+   Computes real statistics from paper titles so the AI never
+   has to count or average anything. The AI only does what it
+   is actually good at: semantic judgment and classification.
+   ───────────────────────────────────────────────────────────── */
+
+// Words too generic to carry field-specific signal in titles.
+var STOP_WORDS = new Set([
+  'a','an','the','and','or','but','in','on','at','to','for','of','with',
+  'by','from','up','about','into','through','during','this','that','these',
+  'those','is','are','was','were','be','been','being','have','has','had',
+  'do','does','did','will','would','could','should','may','might','shall',
+  'can','as','if','then','than','so','yet','both','either','neither','nor',
+  'not','only','own','same','such','too','very','just','because','until',
+  'while','although','though','since','unless','however','therefore','thus',
+  'among','between','each','every','all','any','few','more','most','other',
+  'some','its','our','their','his','her','we','they','you','it',
+  // Generic academic-title words that appear across all fields
+  'study','studies','analysis','analyses','review','reviews','paper','papers',
+  'using','used','use','based','new','novel','improved','better','effective',
+  'approach','method','methods','system','systems','model','models',
+  'propose','proposed','presents','presented','develop','developed',
+  'framework','technique','techniques','algorithm','algorithms',
+  'application','applications','evaluation','evaluations','assessment',
+  'towards','toward','via','without','within','across','over','under',
+  'two','three','four','five','first','second','third','large','small',
+  'high','low','deep','multiple','single','multi','cross',
+]);
+
+function tokenizeTitle(title) {
+  return title.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(function(w) { return w.length > 2 && !STOP_WORDS.has(w); });
+}
+
+function mineCorpus(papers) {
+  var freq = {};
+  var lengths = [];
+  var colonCount = 0;
+  var questionCount = 0;
+  var colonSamples = [];
+  var nonColonSamples = [];
+
+  papers.forEach(function(p) {
+    var title = p.title || '';
+    var wordCount = title.split(/\s+/).filter(Boolean).length;
+    lengths.push(wordCount);
+
+    var hasColon = title.indexOf(':') !== -1;
+    if (hasColon) {
+      colonCount++;
+      if (colonSamples.length < 6) colonSamples.push(title);
+    } else {
+      if (nonColonSamples.length < 4) nonColonSamples.push(title);
+    }
+    if (title.indexOf('?') !== -1) questionCount++;
+
+    // Count word occurrences — deduplicate within each title so a single
+    // paper cannot inflate a term's cross-paper frequency.
+    var seenInTitle = {};
+    tokenizeTitle(title).forEach(function(w) {
+      if (!seenInTitle[w]) {
+        freq[w] = (freq[w] || 0) + 1;
+        seenInTitle[w] = true;
+      }
+    });
+  });
+
+  var n = papers.length || 1;
+  var totalLen = lengths.reduce(function(a, b) { return a + b; }, 0);
+  var avgLen = Math.round(totalLen / n);
+  var minLen = Math.min.apply(null, lengths);
+  var maxLen = Math.max.apply(null, lengths);
+
+  // Sort words by cross-paper frequency, descending
+  var sorted = Object.keys(freq)
+    .map(function(w) { return { word: w, count: freq[w] }; })
+    .sort(function(a, b) { return b.count - a.count; });
+
+  var tier1 = sorted.filter(function(e) { return e.count >= 5; })
+                    .map(function(e) { return e.word + ' (' + e.count + ')'; });
+  var tier2 = sorted.filter(function(e) { return e.count >= 3 && e.count < 5; })
+                    .map(function(e) { return e.word + ' (' + e.count + ')'; });
+  var tier3 = sorted.filter(function(e) { return e.count === 2; })
+                    .map(function(e) { return e.word; })
+                    .slice(0, 30);
+
+  // Clean labels (strip counts) for display
+  var tier1Display = sorted.filter(function(e) { return e.count >= 5; })
+                           .map(function(e) { return e.word; });
+  var tier2Display = sorted.filter(function(e) { return e.count >= 3 && e.count < 5; })
+                           .map(function(e) { return e.word; });
+
+  return {
+    n: n,
+    avgLen: avgLen,
+    lenRange: minLen + '–' + maxLen,
+    colonCount: colonCount,
+    colonPct: Math.round(colonCount / n * 100),
+    questionCount: questionCount,
+    colonSamples: colonSamples,
+    nonColonSamples: nonColonSamples,
+    tier1: tier1,           // annotated for AI prompt ("word (N)")
+    tier2: tier2,
+    tier3: tier3,           // plain words for AI
+    tier1Display: tier1Display,   // plain words for UI
+    tier2Display: tier2Display,
+    tier3Display: tier3,
+  };
+}
+
+/* ─────────────────────────────────────────────────────────────
+   PROMPT BUILDERS
+   ───────────────────────────────────────────────────────────── */
+
+function prompt1(abstract) {
+  return {
+    system: 'You are an academic field classifier. Return only valid JSON, no markdown.',
+    user: `Analyse this academic abstract.
+
+ABSTRACT:
+"""
+${abstract}
+"""
+
+Return JSON exactly:
+{
+  "discipline": "Main academic discipline",
+  "subfield": "Specific subfield",
+  "keywords": ["kw1","kw2","kw3","kw4","kw5"],
+  "search_query": "4-8 word query for Semantic Scholar to find top cited papers in this exact subfield"
+}`,
+  };
+}
+
+// Prompt A: pure semantic task — which papers are most relevant, what is the dominant structure?
+// Word frequencies and title lengths are already computed by mineCorpus() in JavaScript.
+// The AI only judges meaning and pattern — it does not count anything.
+function promptRelevance(abstract, papers, corpus) {
+  var list = papers.map(function(p, i) {
+    return (i + 1) + '. "' + p.title + '" (' + (p.year || 'n.d.') + ', ' + (p.venue || 'unknown venue') + ', ' + (p.citationCount || 0).toLocaleString() + ' citations)';
+  }).join('\n');
+
+  var colonSection = corpus.colonSamples.length > 0
+    ? corpus.colonCount + ' of ' + corpus.n + ' titles use a colon:\n' + corpus.colonSamples.map(function(t) { return '  "' + t + '"'; }).join('\n')
+    : 'No titles use colon structure.';
+  var nonColonSection = corpus.nonColonSamples.length > 0
+    ? '\nNon-colon examples:\n' + corpus.nonColonSamples.map(function(t) { return '  "' + t + '"'; }).join('\n')
+    : '';
+
+  return {
+    system: 'You are an academic literature analyst. Do not count or compute — those numbers are provided. Your job is semantic judgment only. Return only valid JSON, no markdown.',
+    user: 'Two tasks. Read carefully.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nPAPERS (sorted by citation count):\n' + list + '\n\nTASK 1 — RELEVANCE: Identify the 5 papers most semantically relevant to this specific abstract (topic + methodology + domain match). Do not pick broadly popular papers — pick papers actually about the same research question. Return 1-based indices.\n\nTASK 2 — STRUCTURE: Based on the structural examples below, write the single dominant template used most by high-citation titles in this corpus. Express it as a generic slot template (e.g. "[Population] + [Intervention]: [Outcome] in [Context]" or "[Method] for [Task]: [Qualifier]").\n\n' + colonSection + nonColonSection + '\n\nReturn JSON exactly:\n{\n  "relevant_5": [i1, i2, i3, i4, i5],\n  "dominant_structure": "<generic template — no angle brackets in the actual string>"\n}',
+  };
+}
+
+// Prompt B: pure abstract analysis — no papers involved at all.
+function promptDecomp(abstract) {
+  return {
+    system: 'You are an academic writing analyst. Decompose the abstract with precision. Return only valid JSON, no markdown.',
+    user: 'Decompose this abstract into its core research components.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nReturn JSON exactly:\n{\n  "core_contribution": "<the single most important finding or contribution — one sentence, no hedging>",\n  "methodology": "<the research design or method used>",\n  "population_domain": "<study population, geographic scope, or application domain>",\n  "key_variables": ["most important variable", "second", "third"],\n  "time_period": "<time period studied, or Not specified>"\n}',
+  };
+}
+
+const RUBRIC = `SMART SCORING RUBRIC (score each dimension 0–20):
+
+S — Specific (0–20)
+  20 = Exact topic, population, and variable all named
+  15 = Two of three present
+  10 = Only general topic named
+   5 = Vague, applicable to multiple fields
+   0 = No identifiable subject
+
+M — Measurable (0–20)
+  20 = Method or metric explicitly signaled in title
+  15 = Outcome implied but not named
+  10 = Study type hinted (analysis, review, etc.)
+   5 = No measurability signal
+   0 = Actively misleading about scope
+
+A — Achievable (0–20)
+  20 = Scope of claim matches abstract evidence exactly
+  15 = Slight overstatement, minor fix needed
+  10 = Title claims more than abstract delivers
+   5 = Significant credibility mismatch
+   0 = Title is unsupportable by the abstract
+
+R — Relevant (0–20)
+  20 = Uses 3+ keywords from Tier 1 or Tier 2 vocabulary pool
+  15 = Uses 2 keywords from pool
+  10 = Uses 1 keyword from pool
+   5 = Adjacent terminology, no direct match
+   0 = No connection to field vocabulary
+
+T — Time-bound (0–20)
+  20 = Time period, phase, or temporal context present
+  15 = Temporal context implied
+  10 = Missing but abstract contains time data
+   5 = No temporal anchor despite time-sensitive content
+   0 = Time absent but paper explicitly requires it
+  null = Theoretical/timeless paper — redistribute 20 pts equally across S, M, A, R`;
+
+// corpus = mineCorpus() output (JS-computed, exact)
+// aiStructure = dominant_structure string from promptRelevance AI call
+// rel5papers = array of paper objects selected by promptRelevance AI call
+function prompt3(abstract, field, corpus, aiStructure, decomp, rel5papers) {
+  var relList = rel5papers
+    .map(function(p) {
+      return '"' + p.title + '" (' + (p.year || 'n.d.') + (p.venue ? ', ' + p.venue : '') + ')';
+    })
+    .join('\n  ');
+
+  var tier1str = corpus.tier1.join(', ') || '(none found at this threshold)';
+  var tier2str = corpus.tier2.join(', ') || '(none found at this threshold)';
+  var tier3str = corpus.tier3.join(', ') || '(none)';
+
+  return {
+    system: 'You are an expert academic title specialist. The abstract is your single source of truth — never claim more than it supports (Achievable). The vocabulary pool contains words with VERIFIED frequency counts from real papers in this field. Use them. Return only valid JSON, no markdown.',
+    user: 'Generate 3 title recommendations grounded in the corpus data below.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nFIELD: ' + field.discipline + ' — ' + field.subfield + '\n\nCORPUS STATISTICS (computed from ' + corpus.n + ' top-cited papers — these are exact counts, not estimates):\n- Average title length: ' + corpus.avgLen + ' words (range ' + corpus.lenRange + ')\n- Colon usage: ' + corpus.colonCount + '/' + corpus.n + ' titles (' + corpus.colonPct + '%)\n- Dominant structure: ' + aiStructure + '\n\nVOCABULARY POOL (word = number of distinct paper titles it appears in):\n- Tier 1 — 5+ titles: ' + tier1str + '\n- Tier 2 — 3-4 titles: ' + tier2str + '\n- Tier 3 — 2 titles: ' + tier3str + '\n\nMOST RELEVANT CITED PAPERS (semantically matched to this abstract):\n  ' + relList + '\n\nABSTRACT DECOMPOSITION:\n- Core contribution: ' + decomp.core_contribution + '\n- Methodology: ' + decomp.methodology + '\n- Population/domain: ' + decomp.population_domain + '\n- Key variables: ' + (decomp.key_variables || []).join(', ') + '\n- Time period: ' + decomp.time_period + '\n\n' + RUBRIC + '\n\nGenerate:\n1. "SMART Maximizer" — highest total SMART score possible\n2. "Concise SMART" — ≤12 words, strong SMART\n3. "Citation-Matched" — follows the dominant structural template exactly\n\nRules:\n- MUST use words from Tier 1 and Tier 2 — these are real field vocabulary\n- A-score: abstract evidence only, zero overstatement\n- fix_notes: populate only when score < 15; quote the abstract directly\n- T = null if the paper is theoretical or timeless\n- winner = highest total (tie → prefer SMART Maximizer)\n\nReturn JSON exactly:\n{\n  "titles": [\n    {\n      "type": "SMART Maximizer",\n      "title": "",\n      "scores": {"S":0,"M":0,"A":0,"R":0,"T":0},\n      "total": 0,\n      "fix_notes": {"S":"","M":"","A":"","R":"","T":""},\n      "justification": ""\n    },\n    {\n      "type": "Concise SMART",\n      "title": "",\n      "scores": {"S":0,"M":0,"A":0,"R":0,"T":0},\n      "total": 0,\n      "fix_notes": {"S":"","M":"","A":"","R":"","T":""},\n      "justification": ""\n    },\n    {\n      "type": "Citation-Matched",\n      "title": "",\n      "scores": {"S":0,"M":0,"A":0,"R":0,"T":0},\n      "total": 0,\n      "fix_notes": {"S":"","M":"","A":"","R":"","T":""},\n      "justification": ""\n    }\n  ],\n  "winner": {\n    "type": "",\n    "title": "",\n    "justification": ""\n  }\n}',
+  };
+}
+
+/* ─────────────────────────────────────────────────────────────
+   JOURNAL SUGGESTER — API + PROMPTS
+   ───────────────────────────────────────────────────────────── */
+
+async function fetchJournals(query) {
+  const url = 'https://api.openalex.org/sources?search=' + encodeURIComponent(query) +
+    '&filter=type:journal&per-page=20&sort=cited_by_count:desc&mailto=support@f2yapps.com';
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('OpenAlex ' + res.status);
+  const data = await res.json();
+  return (data.results || []).filter(function(j) { return j.display_name; }).slice(0, 15);
+}
+
+function promptJournal1(abstract) {
+  return {
+    system: 'You are an academic publishing expert. Return only valid JSON, no markdown.',
+    user: 'Analyse this abstract and extract the field, methodology, and 3 journal search terms.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nReturn JSON exactly:\n{\n  "field": "Main academic discipline (concise)",\n  "methodology": "Study type / method",\n  "search_terms": ["term1","term2","term3"]\n}',
+  };
+}
+
+function promptJournal2(abstract, field, methodology, journalData, prefs) {
+  const rows = journalData.map(function(j, i) {
+    const oa = j.is_oa === true ? 'open-access' : 'subscription';
+    const stats = j.summary_stats || {};
+    const citedness = stats['2yr_mean_citedness'] != null ? stats['2yr_mean_citedness'] : null;
+    const ifStr = citedness !== null ? citedness.toFixed(2) : 'N/A';
+    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF~' + ifStr + ' | ' + (j.publisher || 'unknown publisher');
+  }).join('\n');
+  const hIdx = prefs.hindex ? 'h-index ' + prefs.hindex : 'unknown h-index';
+  const access = prefs.access && prefs.access !== 'any' ? prefs.access : 'no preference';
+
+  return {
+    system: 'You are an expert academic publication consultant. Return only valid JSON, no markdown.',
+    user: 'Recommend the 5 best journals for this paper.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nFIELD: ' + field + '\nMETHODOLOGY: ' + methodology + '\nAUTHOR: ' + hIdx + '\nACCESS PREFERENCE: ' + access + '\n\nAVAILABLE JOURNALS:\n' + rows + '\n\nAssign tier: safe (well within author reach), good (strong fit), stretch (ambitious target).\nScore topic_fit, method_fit, scope_fit each 0-100.\n\nReturn JSON exactly:\n{\n  "journals": [\n    {\n      "rank": 1,\n      "name": "",\n      "publisher": "",\n      "access_type": "open-access|subscription|hybrid",\n      "impact_factor": 0.0,\n      "tier": "safe|good|stretch",\n      "topic_fit": 0,\n      "method_fit": 0,\n      "scope_fit": 0,\n      "why": "2-3 sentence rationale"\n    }\n  ]\n}',
+  };
+}
+
+/* ─────────────────────────────────────────────────────────────
+   ABSTRACT IMPROVER — PROMPT
+   ───────────────────────────────────────────────────────────── */
+
+function promptAbstract(abstract) {
+  return {
+    system: 'You are an expert academic writing coach. Evaluate the abstract against IMRAD-O criteria and give the author precise feedback on what to add, what to remove, and what to improve. Do NOT rewrite. Return only valid JSON, no markdown.',
+    user: 'Evaluate this abstract and give the author actionable feedback.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nIMRAD-O SCORING (each 0-20):\n- I: Introduction/Background — context and motivation clearly stated\n- M: Methods — approach and design clearly described\n- R: Results — key findings explicitly stated with data\n- A: Analysis/Discussion — interpretation and implications present\n- O: Objective/Aim — research question or aim clearly stated\n\nFor every score below 18, add at least one feedback item. Use action "add" for missing content, "remove" for redundant/vague content, "improve" for weak but present content.\n\nReturn JSON exactly:\n{\n  "scores": {"I":0,"M":0,"R":0,"A":0,"O":0},\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "element": "I|M|R|A|O",\n      "action": "add|remove|improve",\n      "severity": "high|medium|low",\n      "note": "Tell the author exactly what content to add, remove, or change — be specific"\n    }\n  ]\n}',
+  };
+}
+
+function promptConclusion(conclusion) {
+  return {
+    system: 'You are an expert academic writing coach. Evaluate the conclusion against SCALF criteria and give the author precise feedback on what to add, what to remove, and what to improve. Do NOT rewrite. Return only valid JSON, no markdown.',
+    user: 'Evaluate this conclusion and give the author actionable feedback.\n\nCONCLUSION:\n"""\n' + conclusion + '\n"""\n\nSCALF SCORING (each 0-20):\n- S: Summary — key findings are clearly summarised (avoid copy-pasting the abstract)\n- C: Contribution — the paper\'s novel contribution is explicitly stated\n- A: Application — practical implications or real-world significance are discussed\n- L: Limitations — limitations of the study are honestly acknowledged\n- F: Future — concrete future research directions are suggested\n\nFor every score below 18, add at least one feedback item. Use action "add" for missing content, "remove" for redundant/vague content, "improve" for weak but present content.\n\nReturn JSON exactly:\n{\n  "scores": {"S":0,"C":0,"A":0,"L":0,"F":0},\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "element": "S|C|A|L|F",\n      "action": "add|remove|improve",\n      "severity": "high|medium|low",\n      "note": "Tell the author exactly what content to add, remove, or change — be specific"\n    }\n  ]\n}',
+  };
+}
+
+/* ─────────────────────────────────────────────────────────────
+   SMALL UI ATOMS
+   ───────────────────────────────────────────────────────────── */
+
+function Dots({ text }) {
+  return (
+    <div className="loading-row" aria-live="polite" aria-busy="true">
+      <div className="dots" aria-hidden="true">
+        <span /><span /><span />
+      </div>
+      <span>{text}</span>
+    </div>
+  );
+}
+
+function StepCard({ num, title, status, children }) {
+  return (
+    <div className="step-card" role="region" aria-label={`Step ${num}: ${title}`}>
+      <div className="step-head">
+        <span className="step-badge">Step {num}</span>
+        <h2>{title}</h2>
+        {status === 'done' && <span className="step-check">✓ Done</span>}
+      </div>
+      <div className="step-body">{children}</div>
+    </div>
+  );
+}
+
+// Horizontal SMART score bar for one dimension.
+function SmartBar({ dim, score }) {
+  if (score === null || score === undefined) {
+    return (
+      <div className="smart-row">
+        <span className="smart-dim-label">{dim}</span>
+        <div className="smart-track" />
+        <span className="smart-score-label smart-na">N/A</span>
+      </div>
+    );
+  }
+  const pct = Math.round((score / 20) * 100);
+  const cls = score >= 15 ? 'hi' : score >= 10 ? 'mid' : 'lo';
+  return (
+    <div className="smart-row">
+      <span className="smart-dim-label">{dim}</span>
+      <div className="smart-track">
+        <div className={`smart-fill ${cls}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="smart-score-label">{score}/20</span>
+    </div>
+  );
+}
+
+// Copy-to-clipboard button with 2-second feedback.
+function CopyBtn({ text }) {
+  const [ok, setOk] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setOk(true);
+      setTimeout(() => setOk(false), 2000);
+    });
+  };
+  return (
+    <button className={`btn-copy${ok ? ' copied' : ''}`} onClick={copy} aria-label="Copy title to clipboard">
+      {ok ? 'Copied!' : 'Copy title'}
+    </button>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   STEP DISPLAY COMPONENTS
+   ───────────────────────────────────────────────────────────── */
+
+function FieldDisplay({ data }) {
+  return (
+    <>
+      <div className="two-col">
+        <div className="field-item">
+          <label>Discipline</label>
+          <p>{data.discipline}</p>
+        </div>
+        <div className="field-item">
+          <label>Subfield</label>
+          <p>{data.subfield}</p>
+        </div>
+      </div>
+      <div className="slabel">Keywords extracted</div>
+      <div className="chips">
+        {(data.keywords || []).map(k => <span key={k} className="chip">{k}</span>)}
+      </div>
+    </>
+  );
+}
+
+function LiteratureDisplay({ papers, relevantSet }) {
+  return (
+    <>
+      {papers.length < 20 && (
+        <div className="warn-box">
+          Only {papers.length} papers found. Relevance (R) scoring confidence may be reduced.
+        </div>
+      )}
+      <div className="papers-wrap">
+        <table className="papers-table" aria-label="Top cited papers">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Title</th>
+              <th>Year</th>
+              <th style={{ textAlign:'right' }}>Citations</th>
+            </tr>
+          </thead>
+          <tbody>
+            {papers.map((p, i) => {
+              const isRel = relevantSet && relevantSet.has(i + 1);
+              return (
+                <tr key={i} className={isRel ? 'hl' : ''}>
+                  <td className="p-rank">{i + 1}</td>
+                  <td>
+                    {p.title}
+                    {isRel && <span className="chip neutral" style={{ marginLeft:'.45rem', fontSize:'.6rem' }}>relevant</span>}
+                  </td>
+                  <td className="p-year">{p.year || '—'}</td>
+                  <td className={`p-cites ${p.citationCount > 1000 ? 'hot' : ''}`}>
+                    {(p.citationCount || 0).toLocaleString()}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+// data = corpus (mineCorpus output — JS-computed exact stats)
+// relevance = AI output from promptRelevance (dominant_structure, relevant_5)
+// papers = raw paper array
+function MiningDisplay({ data, relevance, papers }) {
+  const corpus = data || {};
+  const rel5 = ((relevance && relevance.relevant_5) || [])
+    .map(function(i) { return papers && papers[i - 1]; })
+    .filter(Boolean);
+  const structure = (relevance && relevance.dominant_structure) || '—';
+  const poolSize = (corpus.tier1Display || []).length + (corpus.tier2Display || []).length;
+  const tiers = [
+    { key: 'tier1Display', lbl: 'Tier 1 — appears in 5+ titles (highest priority)' },
+    { key: 'tier2Display', lbl: 'Tier 2 — appears in 3–4 titles' },
+    { key: 'tier3Display', lbl: 'Tier 3 — appears in 2 titles' },
+  ];
+  return (
+    <>
+      <div className="stats-row">
+        <div className="stat-box">
+          <span className="stat-val">{corpus.avgLen || '—'}</span>
+          <span className="stat-lbl">Avg words</span>
+        </div>
+        <div className="stat-box">
+          <span className="stat-val">{corpus.colonCount || 0}/{corpus.n || '?'}</span>
+          <span className="stat-lbl">Use colons</span>
+        </div>
+        <div className="stat-box">
+          <span className="stat-val">{poolSize}</span>
+          <span className="stat-lbl">Pool terms</span>
+        </div>
+      </div>
+      <div className="warn-box" style={{ marginBottom:'.85rem', fontSize:'.75rem' }}>
+        Word counts are exact — computed from the {corpus.n || '?'} retrieved titles, not estimated.
+        Title length range: {corpus.lenRange || '—'} words.
+        {corpus.questionCount > 0 && ' ' + corpus.questionCount + ' titles use question form.'}
+      </div>
+
+      <div className="slabel">Dominant title structure (AI-classified)</div>
+      <div className="pattern-box">{structure}</div>
+
+      {tiers.filter(function(t) { return (corpus[t.key] || []).length > 0; }).map(function(t) {
+        return (
+          <div key={t.key} className="vocab-block">
+            <h4>{t.lbl}</h4>
+            <div className="chips">
+              {(corpus[t.key] || []).map(function(w) {
+                return <span key={w} className="chip">{w}</span>;
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      {rel5.length > 0 && (
+        <>
+          <div className="slabel" style={{ marginTop:'1rem' }}>5 most relevant to your abstract (AI-selected)</div>
+          <div style={{ display:'grid', gap:'.4rem' }}>
+            {rel5.map(function(p, i) {
+              return (
+                <div key={i} style={{ fontSize:'.82rem', padding:'.45rem .75rem', background:'var(--hi)', border:'1px solid rgba(196,84,26,.18)', borderRadius:'var(--r)', lineHeight:1.5 }}>
+                  <span style={{ fontWeight:500 }}>{p.title}</span>
+                  <span style={{ fontFamily:'var(--mono)', fontSize:'.65rem', color:'var(--muted)', marginLeft:'.55rem' }}>
+                    {p.year || 'n.d.'}{p.venue ? ' · ' + p.venue : ''} · {(p.citationCount || 0).toLocaleString()} cites
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+function DecompDisplay({ data }) {
+  const rows = [
+    { key: 'Core contribution',  val: data.core_contribution },
+    { key: 'Methodology',        val: data.methodology },
+    { key: 'Population / domain',val: data.population_domain },
+    { key: 'Key variables',      val: Array.isArray(data.key_variables) ? data.key_variables.join(', ') : data.key_variables },
+    { key: 'Time period',        val: data.time_period },
+  ];
+  return (
+    <div className="decomp-list">
+      {rows.map(r => (
+        <div key={r.key} className="decomp-row">
+          <span className="decomp-key">{r.key}</span>
+          <p className="decomp-val">{r.val || '—'}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Single title recommendation card with SMART bars, fix notes, and justification.
+function TitleCard({ item, isWinner }) {
+  const sc = item.scores || {};
+  const fn = item.fix_notes || {};
+  const total = item.total ?? Object.values(sc).reduce((a, v) => a + (v || 0), 0);
+  const fixes = Object.entries(fn).filter(([dim, note]) => note && (sc[dim] ?? 20) < 15);
+
+  return (
+    <div className={`title-card${isWinner ? ' winner-wrap' : ''}`}>
+      <div className="title-card-top">
+        <span className="title-type-badge">{item.type}</span>
+        <CopyBtn text={item.title} />
+      </div>
+      <p className="title-text-big">{item.title}</p>
+      <div className="title-smart-section">
+        {['S','M','A','R','T'].map(d => (
+          <SmartBar key={d} dim={d} score={sc[d] !== undefined ? sc[d] : null} />
+        ))}
+        <div className="smart-total">
+          <span className="smart-total-lbl">Total SMART</span>
+          <span className="smart-total-num">{total}/100</span>
+        </div>
+      </div>
+      {fixes.length > 0 && (
+        <div className="fix-notes-section">
+          <div className="slabel" style={{ marginBottom:'.35rem' }}>Improvement notes</div>
+          {fixes.map(([dim, note]) => (
+            <p key={dim} className="fix-note"><strong>{dim}:</strong> {note}</p>
+          ))}
+        </div>
+      )}
+      {item.justification && (
+        <div className="title-card-foot">
+          <span className="justification-text">{item.justification}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   JOURNAL SUGGESTER COMPONENTS
+   ───────────────────────────────────────────────────────────── */
+
+function JournalCard({ item, rank }) {
+  const tierClass = item.tier === 'safe' ? 'tier-safe' : item.tier === 'stretch' ? 'tier-stretch' : 'tier-good';
+  const accessClass = item.access_type === 'open-access' ? 'badge-oa' : item.access_type === 'hybrid' ? 'badge-hybrid' : 'badge-sub';
+  const accessLabel = item.access_type === 'open-access' ? 'Open Access' : item.access_type === 'hybrid' ? 'Hybrid' : 'Subscription';
+  const fits = [
+    { lbl: 'Topic fit',  val: item.topic_fit  || 0 },
+    { lbl: 'Method fit', val: item.method_fit || 0 },
+    { lbl: 'Scope fit',  val: item.scope_fit  || 0 },
+  ];
+  const avgFit = Math.round(((item.topic_fit || 0) + (item.method_fit || 0) + (item.scope_fit || 0)) / 3);
+  return (
+    <div className="journal-card">
+      <div className="journal-card-head">
+        <div>
+          <p className="journal-name">#{rank} {item.name}</p>
+          <p className="journal-publisher">{item.publisher || ''}</p>
+        </div>
+        <div className="journal-badges">
+          <span className={'badge ' + accessClass}>{accessLabel}</span>
+          <span className={'badge ' + tierClass}>{item.tier}</span>
+        </div>
+      </div>
+      <div className="journal-body">
+        <div className="journal-meta">
+          <div className="jmeta">
+            <span className="jmeta-val">{item.impact_factor ? item.impact_factor.toFixed(1) : 'N/A'}</span>
+            <span className="jmeta-lbl">Impact Factor</span>
+          </div>
+          <div className="jmeta">
+            <span className="jmeta-val">{avgFit}%</span>
+            <span className="jmeta-lbl">Avg Fit</span>
+          </div>
+          <div className="jmeta">
+            <span className="jmeta-val" style={{ textTransform:'capitalize' }}>{item.tier || '—'}</span>
+            <span className="jmeta-lbl">Tier</span>
+          </div>
+        </div>
+        {fits.map(function(f) {
+          const fillColor = f.val >= 70 ? 'var(--accent)' : f.val >= 50 ? '#e8a87c' : '#c9bfb3';
+          return (
+            <div key={f.lbl} className="fit-row">
+              <span className="fit-lbl">{f.lbl}</span>
+              <div className="fit-track">
+                <div className="fit-fill" style={{ width: f.val + '%', background: fillColor }} />
+              </div>
+              <span className="fit-pct">{f.val}%</span>
+            </div>
+          );
+        })}
+        {item.why && <p className="journal-why">{item.why}</p>}
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   WRITING FEEDBACK COMPONENTS (Abstract + Conclusion)
+   ───────────────────────────────────────────────────────────── */
+
+function WritingFeedback({ items, dimMap }) {
+  if (!items || items.length === 0) return null;
+  const actionStyle = function(action) {
+    if (action === 'add')    return { label:'+ Add',     color:'#2d7a3a', bg:'#e8f5e9', border:'#c3e6cb' };
+    if (action === 'remove') return { label:'− Remove',  color:'#c0392b', bg:'#fff0f0', border:'#f5c6c6' };
+    return                          { label:'↑ Improve', color:'var(--accent)', bg:'var(--hi)', border:'rgba(196,84,26,.25)' };
+  };
+  return (
+    <>
+      <div className="slabel">Author feedback</div>
+      <div className="improvement-list">
+        {items.map(function(fb, i) {
+          const s = actionStyle(fb.action);
+          return (
+            <div key={i} className="improvement-item">
+              <div className="improvement-head">
+                <span className="improvement-el">{fb.element} — {dimMap[fb.element] || fb.element}</span>
+                <span className={'severity-' + (fb.severity || 'low')}>{fb.severity}</span>
+              </div>
+              <div style={{ display:'flex', alignItems:'flex-start', gap:'.6rem', padding:'.55rem .85rem', lineHeight:1.55 }}>
+                <span style={{ fontFamily:'var(--mono)', fontSize:'.63rem', fontWeight:600, color:s.color, background:s.bg, border:'1px solid ' + s.border, borderRadius:'2px', padding:'.1rem .45rem', whiteSpace:'nowrap', marginTop:'.12rem', flexShrink:0 }}>
+                  {s.label}
+                </span>
+                <span style={{ fontSize:'.82rem', color:'var(--ink)' }}>{fb.note}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function AbstractResult({ data }) {
+  const sc = data.scores || {};
+  const DIMS = { I: 'Introduction', M: 'Methods', R: 'Results', A: 'Analysis', O: 'Objective' };
+  const dimKeys = ['I', 'M', 'R', 'A', 'O'];
+  const total = dimKeys.reduce(function(acc, d) { return acc + (sc[d] || 0); }, 0);
+  const scoreColor = function(v) { return v >= 15 ? 'var(--accent)' : v >= 10 ? '#b87c00' : '#8b2020'; };
+  return (
+    <>
+      <div className="slabel">IMRAD-O Scores</div>
+      <div className="abst-score-grid">
+        {dimKeys.map(function(d) {
+          return (
+            <div key={d} className="abst-score-box">
+              <span className="abst-score-val" style={{ color: scoreColor(sc[d] || 0) }}>{sc[d] || 0}/20</span>
+              <span className="abst-score-lbl">{DIMS[d]}</span>
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ fontFamily:'var(--mono)', fontSize:'.78rem', color:'var(--muted)', marginBottom:'.75rem' }}>
+        Total: <strong style={{ color:'var(--accent)' }}>{total}/100</strong>
+      </p>
+      {data.verdict && <p className="abst-verdict">{data.verdict}</p>}
+      <WritingFeedback items={data.feedback || []} dimMap={DIMS} />
+    </>
+  );
+}
+
+function ConclusionResult({ data }) {
+  const sc = data.scores || {};
+  const DIMS = { S: 'Summary', C: 'Contribution', A: 'Application', L: 'Limitations', F: 'Future Work' };
+  const dimKeys = ['S', 'C', 'A', 'L', 'F'];
+  const total = dimKeys.reduce(function(acc, d) { return acc + (sc[d] || 0); }, 0);
+  const scoreColor = function(v) { return v >= 15 ? 'var(--accent)' : v >= 10 ? '#b87c00' : '#8b2020'; };
+  return (
+    <>
+      <div className="slabel">SCALF Scores</div>
+      <div className="abst-score-grid">
+        {dimKeys.map(function(d) {
+          return (
+            <div key={d} className="abst-score-box">
+              <span className="abst-score-val" style={{ color: scoreColor(sc[d] || 0) }}>{sc[d] || 0}/20</span>
+              <span className="abst-score-lbl">{DIMS[d]}</span>
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ fontFamily:'var(--mono)', fontSize:'.78rem', color:'var(--muted)', marginBottom:'.75rem' }}>
+        Total: <strong style={{ color:'var(--accent)' }}>{total}/100</strong>
+      </p>
+      {data.verdict && <p className="abst-verdict">{data.verdict}</p>}
+      <WritingFeedback items={data.feedback || []} dimMap={DIMS} />
+    </>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   MAIN APP
+   ───────────────────────────────────────────────────────────── */
+
+function App() {
+  const [abstract, setAbstract]         = useState('');
+  const [selectedModel, setModel]       = useState(() => sessionStorage.getItem('ts_model') || DEFAULT_MODEL);
+  // Per-provider keys stored separately so switching model doesn't erase the other key
+  const [keys, setKeys]                 = useState(function() {
+    return {
+      groq:   sessionStorage.getItem('ts_key_groq')   || '',
+      claude: sessionStorage.getItem('ts_key_claude') || '',
+      openai: sessionStorage.getItem('ts_key_openai') || '',
+      gemini: sessionStorage.getItem('ts_key_gemini') || '',
+    };
+  });
+  const [settingsOpen, setSettings]     = useState(false);
+  const [running, setRunning]           = useState(false);
+  const [steps, setSteps]               = useState({});
+  const [mode, setMode]                 = useState('title');
+  const [journalPrefs, setJPrefs]       = useState({ access: 'any', hindex: '' });
+  const [journalSteps, setJSteps]       = useState(null);
+  const [abstractResult, setAbstRes]    = useState(null);
+  const [journalRunning, setJRunning]   = useState(false);
+  const [abstractRunning, setARunning]  = useState(false);
+  const [conclusion, setConclusion]     = useState('');
+  const [conclusionResult, setConcRes]  = useState(null);
+  const [conclusionRunning, setCRunning]= useState(false);
+
+  const settingsRef = useRef(null);
+  const endRef      = useRef(null);
+
+  const provider   = modelProvider(selectedModel);
+  const currentKey = keys[provider] || '';
+
+  // Persist model choice and all keys to sessionStorage.
+  useEffect(function() {
+    sessionStorage.setItem('ts_model', selectedModel);
+  }, [selectedModel]);
+
+  useEffect(function() {
+    Object.keys(keys).forEach(function(p) {
+      if (keys[p]) sessionStorage.setItem('ts_key_' + p, keys[p]);
+      else sessionStorage.removeItem('ts_key_' + p);
+    });
+  }, [keys]);
+
+  function setProviderKey(val) {
+    setKeys(function(prev) {
+      const next = {};
+      Object.keys(prev).forEach(function(k) { next[k] = prev[k]; });
+      next[provider] = val;
+      return next;
+    });
+  }
+
+  // Scroll into view when new steps appear.
+  useEffect(() => {
+    if (Object.keys(steps).length > 0 && endRef.current) {
+      endRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [steps]);
+
+  // Update one step's data.
+  const setStep = useCallback((n, patch) => {
+    setSteps(prev => ({ ...prev, [n]: { ...(prev[n]||{}), ...patch } }));
+  }, []);
+
+  const wordCount = abstract.trim().split(/\s+/).filter(Boolean).length;
+  const canRun = abstract.trim().length > 0 && !running;
+
+  // Main pipeline.
+  async function run() {
+    if (!currentKey) {
+      setSettings(true);
+      setTimeout(function() {
+        const el = settingsRef.current && settingsRef.current.querySelector('input[type="password"]');
+        if (el) el.focus();
+      }, 150);
+      return;
+    }
+    setRunning(true);
+    setSteps({});
+
+    try {
+      /* — Step 1: Field Detection — */
+      setStep(1, { status: 'loading' });
+      let field;
+      try {
+        const p = prompt1(abstract);
+        field = await aiJson(selectedModel, currentKey, p.system, p.user);
+        setStep(1, { status: 'done', data: field });
+      } catch (e) {
+        setStep(1, { status: 'error', error: e.message });
+        return;
+      }
+
+      /* — Step 2: Literature Search + JS Pre-computation — */
+      setStep(2, { status: 'loading' });
+      var papers;
+      var corpus;
+      try {
+        papers = await fetchPapers(field.search_query);
+        if (papers.length === 0) {
+          setStep(2, { status: 'loading', msg: 'No results — retrying with broader query…' });
+          await new Promise(function(r) { setTimeout(r, 1800); });
+          papers = await fetchPapers(field.search_query, true);
+        }
+        if (papers.length === 0) {
+          setStep(2, { status: 'error', error: 'No papers found. Try rephrasing your abstract or check your connection.' });
+          return;
+        }
+        // Pre-compute real corpus statistics in JavaScript — no AI involved.
+        corpus = mineCorpus(papers);
+        setStep(2, { status: 'done', data: papers, corpus: corpus });
+      } catch (fetchErr) {
+        try {
+          setStep(2, { status: 'loading', msg: 'Retrying search…' });
+          await new Promise(function(r) { setTimeout(r, 1800); });
+          papers = await fetchPapers(field.search_query, true);
+          corpus = mineCorpus(papers);
+          setStep(2, { status: 'done', data: papers, corpus: corpus });
+        } catch (fetchErr2) {
+          setStep(2, { status: 'error', error: 'Literature search failed: ' + fetchErr2.message });
+          return;
+        }
+      }
+
+      /* — Steps 3 + 4: Relevance/Structure (AI) + Decomposition (AI) — run in parallel — */
+      setStep(3, { status: 'loading' });
+      setStep(4, { status: 'loading' });
+      var relevanceResult;
+      var decomp;
+      try {
+        var pRel = promptRelevance(abstract, papers, corpus);
+        var pDec = promptDecomp(abstract);
+        // Both calls are independent — run together to save time
+        var parallel = await Promise.all([
+          aiJson(selectedModel, currentKey, pRel.system, pRel.user),
+          aiJson(selectedModel, currentKey, pDec.system, pDec.user),
+        ]);
+        relevanceResult = parallel[0];
+        decomp = parallel[1];
+        setStep(3, { status: 'done', data: corpus, relevance: relevanceResult, papers: papers });
+        setStep(4, { status: 'done', data: decomp });
+      } catch (analysisErr) {
+        setStep(3, { status: 'error', error: analysisErr.message });
+        setStep(4, { status: 'error', error: analysisErr.message });
+        return;
+      }
+
+      /* — Steps 5 + 6: Titles + Winner — */
+      setStep(5, { status: 'loading' });
+      setStep(6, { status: 'loading' });
+      try {
+        var rel5papers = (relevanceResult.relevant_5 || [])
+          .map(function(i) { return papers[i - 1]; })
+          .filter(Boolean);
+        var p5 = prompt3(abstract, field, corpus, relevanceResult.dominant_structure || '', decomp, rel5papers);
+        var result = await aiJson(selectedModel, currentKey, p5.system, p5.user);
+        var winnerTitle = (result.winner && result.winner.title) || '';
+        setStep(5, { status: 'done', data: result.titles || [], winnerTitle: winnerTitle });
+        setStep(6, { status: 'done', data: result.winner });
+      } catch (titleErr) {
+        setStep(5, { status: 'error', error: titleErr.message });
+        setStep(6, { status: 'error', error: titleErr.message });
+        return;
+      }
+
+    } catch (e) {
+      console.error('Unexpected error:', e);
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function runJournals() {
+    if (!currentKey) {
+      setSettings(true);
+      setTimeout(function() {
+        var el = settingsRef.current && settingsRef.current.querySelector('input[type="password"]');
+        if (el) el.focus();
+      }, 150);
+      return;
+    }
+    setJRunning(true);
+    setJSteps({ status: 'loading', msg: 'Analysing abstract field…' });
+
+    try {
+      var p1 = promptJournal1(abstract);
+      var fieldInfo;
+      try {
+        fieldInfo = await aiJson(selectedModel, currentKey, p1.system, p1.user);
+      } catch(fe) {
+        setJSteps({ status: 'error', error: 'Field analysis failed: ' + fe.message });
+        return;
+      }
+
+      setJSteps({ status: 'loading', msg: 'Searching journal databases…' });
+      var allJournals = [];
+      var terms = fieldInfo.search_terms || [fieldInfo.field || 'academic research'];
+
+      for (var ti = 0; ti < Math.min(terms.length, 2); ti++) {
+        try {
+          var batch = await fetchJournals(terms[ti]);
+          for (var bi = 0; bi < batch.length; bi++) {
+            var dup = false;
+            for (var ai = 0; ai < allJournals.length; ai++) {
+              if (allJournals[ai].id === batch[bi].id) { dup = true; break; }
+            }
+            if (!dup) allJournals.push(batch[bi]);
+          }
+        } catch(te) { /* skip failed term */ }
+      }
+
+      if (allJournals.length === 0) {
+        try {
+          allJournals = await fetchJournals(fieldInfo.field || abstract.split(' ').slice(0, 4).join(' '));
+        } catch(fallbackErr) {
+          setJSteps({ status: 'error', error: 'Journal search failed. Check your internet connection.' });
+          return;
+        }
+      }
+
+      setJSteps({ status: 'loading', msg: 'Ranking journals for your paper…' });
+      var p2 = promptJournal2(abstract, fieldInfo.field || '', fieldInfo.methodology || '', allJournals, journalPrefs);
+      var ranked;
+      try {
+        ranked = await aiJson(selectedModel, currentKey, p2.system, p2.user);
+      } catch(re) {
+        setJSteps({ status: 'error', error: 'Journal ranking failed: ' + re.message });
+        return;
+      }
+
+      setJSteps({ status: 'done', data: ranked.journals || [] });
+    } catch(outerErr) {
+      setJSteps({ status: 'error', error: outerErr.message });
+    } finally {
+      setJRunning(false);
+    }
+  }
+
+  async function runAbstract() {
+    if (!currentKey) {
+      setSettings(true);
+      setTimeout(function() {
+        var el = settingsRef.current && settingsRef.current.querySelector('input[type="password"]');
+        if (el) el.focus();
+      }, 150);
+      return;
+    }
+    setARunning(true);
+    setAbstRes({ status: 'loading' });
+
+    try {
+      var pa = promptAbstract(abstract);
+      var resultA;
+      try {
+        resultA = await aiJson(selectedModel, currentKey, pa.system, pa.user);
+      } catch(aiErr) {
+        setAbstRes({ status: 'error', error: aiErr.message });
+        return;
+      }
+      resultA.original = abstract;
+      setAbstRes({ status: 'done', data: resultA });
+    } catch(wrapErr) {
+      setAbstRes({ status: 'error', error: wrapErr.message });
+    } finally {
+      setARunning(false);
+    }
+  }
+
+  async function runConclusion() {
+    if (!currentKey) {
+      setSettings(true);
+      setTimeout(function() {
+        var el = settingsRef.current && settingsRef.current.querySelector('input[type="password"]');
+        if (el) el.focus();
+      }, 150);
+      return;
+    }
+    setCRunning(true);
+    setConcRes({ status: 'loading' });
+    try {
+      var pc = promptConclusion(conclusion);
+      var resultC;
+      try {
+        resultC = await aiJson(selectedModel, currentKey, pc.system, pc.user);
+      } catch(aiErr) {
+        setConcRes({ status: 'error', error: aiErr.message });
+        return;
+      }
+      setConcRes({ status: 'done', data: resultC });
+    } catch(wrapErr) {
+      setConcRes({ status: 'error', error: wrapErr.message });
+    } finally {
+      setCRunning(false);
+    }
+  }
+
+  function reset() {
+    setSteps({});
+    setJSteps(null);
+    setAbstRes(null);
+    setConcRes(null);
+    setAbstract('');
+    setConclusion('');
+    setRunning(false);
+    setJRunning(false);
+    setARunning(false);
+    setCRunning(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  const s = steps;
+  const relevantSet = (s[3] && s[3].relevance && s[3].relevance.relevant_5)
+    ? new Set(s[3].relevance.relevant_5)
+    : null;
+
+  return (
+    <div className="container">
+
+      {/* ── Header ── */}
+      <header className="header">
+        <p className="eyebrow">Academic Tool</p>
+        <h1>Title<em>Smart</em></h1>
+        <p className="tagline">Paste your abstract. We handle the rest.</p>
+      </header>
+
+      {/* ── Settings ── */}
+      <button
+        className={'settings-toggle' + (!currentKey ? ' needs-key' : '')}
+        onClick={function() { setSettings(function(o) { return !o; }); }}
+        aria-expanded={settingsOpen}
+        aria-controls="settings-panel"
+      >
+        ⚙ Settings {!currentKey && '— API key required'}
+      </button>
+
+      {settingsOpen && (
+        <div className="settings-panel" id="settings-panel" ref={settingsRef} role="region" aria-label="Settings">
+
+          {/* Model picker */}
+          <div className="field-label" style={{ marginBottom:'.6rem' }}>AI Model</div>
+          <div className="model-picker">
+            {['groq','claude','openai','gemini'].map(function(prov) {
+              const provModels = MODELS.filter(function(m) { return m.provider === prov; });
+              return (
+                <div key={prov} className="model-group">
+                  <span className="model-group-label" style={{ color: PROVIDERS[prov].color }}>
+                    {PROVIDERS[prov].label}
+                  </span>
+                  <div className="model-group-btns">
+                    {provModels.map(function(m) {
+                      return (
+                        <button
+                          key={m.id}
+                          className={'model-btn' + (selectedModel === m.id ? ' active' : '')}
+                          style={ selectedModel === m.id ? { borderColor: PROVIDERS[prov].color, color: PROVIDERS[prov].color, background: PROVIDERS[prov].color + '12' } : {} }
+                          onClick={function() { setModel(m.id); }}
+                          type="button"
+                        >
+                          {m.label}
+                          {m.badge && <span className="model-badge">{m.badge}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* API key for current provider */}
+          <div style={{ marginTop:'1.1rem' }}>
+            <label className="field-label" htmlFor="api-key">
+              {PROVIDERS[provider].label} API Key
+            </label>
+            <input
+              id="api-key"
+              type="password"
+              value={currentKey}
+              onChange={function(e) { setProviderKey(e.target.value); }}
+              placeholder={PROVIDERS[provider].placeholder}
+              autoComplete="off"
+            />
+            <p className="key-note">{PROVIDERS[provider].note} · Stored in sessionStorage only, never logged.</p>
+          </div>
+
+        </div>
+      )}
+
+      {/* ── Mode tabs ── */}
+      <div className="mode-tabs" role="tablist">
+        {[
+          { key: 'title',      label: 'Title Recommender'  },
+          { key: 'journal',    label: 'Journal Suggester'   },
+          { key: 'abstract',   label: 'Abstract Feedback'   },
+          { key: 'conclusion', label: 'Conclusion Feedback' },
+        ].map(function(m) {
+          return (
+            <button
+              key={m.key}
+              className={'mode-tab' + (mode === m.key ? ' active' : '')}
+              onClick={function() { setMode(m.key); }}
+              role="tab"
+              aria-selected={mode === m.key}
+              type="button"
+            >
+              {m.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Conclusion mode: own textarea ── */}
+      {mode === 'conclusion' ? (
+        <div>
+          <label htmlFor="conclusion-text" style={{ display:'block', fontWeight:600, marginBottom:'.45rem' }}>
+            Conclusion
+          </label>
+          <textarea
+            id="conclusion-text"
+            value={conclusion}
+            onChange={function(e) { setConclusion(e.target.value); }}
+            placeholder="Paste your conclusion section here…"
+            disabled={conclusionRunning}
+            aria-describedby="cwc"
+          />
+          <div id="cwc" className="word-count">
+            {conclusion.trim().split(/\s+/).filter(Boolean).length}{' '}
+            {conclusion.trim().split(/\s+/).filter(Boolean).length === 1 ? 'word' : 'words'}
+          </div>
+          <button
+            className="btn-primary"
+            onClick={runConclusion}
+            disabled={!conclusion.trim() || conclusionRunning}
+            aria-busy={conclusionRunning}
+          >
+            {conclusionRunning
+              ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Analysing…</>
+              : 'Get Conclusion Feedback'}
+          </button>
+        </div>
+      ) : (
+        /* ── Abstract textarea (title, journal, abstract modes) ── */
+        <div>
+          <label htmlFor="abstract" style={{ display:'block', fontWeight:600, marginBottom:'.45rem' }}>
+            Abstract
+          </label>
+          {wordCount > 0 && wordCount < 50 && (
+            <div className="warn-box">
+              ⚠ Abstract may be too brief ({wordCount} words). Accuracy may vary — proceed anyway.
+            </div>
+          )}
+          <textarea
+            id="abstract"
+            value={abstract}
+            onChange={e => setAbstract(e.target.value)}
+            placeholder="Paste your academic abstract here…"
+            disabled={running || journalRunning || abstractRunning}
+            aria-describedby="wc"
+          />
+          <div id="wc" className={`word-count${wordCount > 0 && wordCount < 50 ? ' warn' : ''}`}>
+            {wordCount} {wordCount === 1 ? 'word' : 'words'}
+          </div>
+
+          {mode === 'title' && (
+            <button className="btn-primary" onClick={run} disabled={!canRun} aria-busy={running}>
+              {running
+                ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Analysing…</>
+                : 'Analyse & Generate Titles'}
+            </button>
+          )}
+
+          {mode === 'journal' && (
+            <>
+              <div className="filter-row" style={{ marginTop:'.9rem' }}>
+                <span style={{ fontSize:'.8rem', color:'var(--muted)', marginRight:'.2rem' }}>Access:</span>
+                {[
+                  { key:'any',          lbl:'Any'          },
+                  { key:'open-access',  lbl:'Open Access'  },
+                  { key:'subscription', lbl:'Subscription' },
+                  { key:'hybrid',       lbl:'Hybrid'       },
+                ].map(function(opt) {
+                  return (
+                    <button
+                      key={opt.key}
+                      className={'filter-btn' + (journalPrefs.access === opt.key ? ' active' : '')}
+                      onClick={function() { setJPrefs(function(p) { return { access: opt.key, hindex: p.hindex }; }); }}
+                      type="button"
+                    >
+                      {opt.lbl}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="hindex-row">
+                <label htmlFor="hindex">Your h-index (optional):</label>
+                <input
+                  id="hindex"
+                  className="hindex-input"
+                  type="number"
+                  min="0"
+                  max="200"
+                  value={journalPrefs.hindex}
+                  onChange={function(e) { setJPrefs(function(p) { return { access: p.access, hindex: e.target.value }; }); }}
+                  placeholder="e.g. 12"
+                />
+              </div>
+              <button
+                className="btn-primary"
+                onClick={runJournals}
+                disabled={!abstract.trim() || journalRunning}
+                aria-busy={journalRunning}
+              >
+                {journalRunning
+                  ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Finding journals…</>
+                  : 'Find Matching Journals'}
+              </button>
+            </>
+          )}
+
+          {mode === 'abstract' && (
+            <button
+              className="btn-primary"
+              onClick={runAbstract}
+              disabled={!abstract.trim() || abstractRunning}
+              aria-busy={abstractRunning}
+            >
+              {abstractRunning
+                ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Analysing…</>
+                : 'Get Abstract Feedback'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Title mode results ── */}
+      {mode === 'title' && Object.keys(s).length > 0 && <hr className="div" />}
+
+      {mode === 'title' && s[1] && (
+        <StepCard num={1} title="Field Detection" status={s[1].status}>
+          {s[1].status === 'loading' && <Dots text="Identifying field and keywords…" />}
+          {s[1].status === 'error'   && <div className="error-box">{s[1].error}</div>}
+          {s[1].status === 'done'    && <FieldDisplay data={s[1].data} />}
+        </StepCard>
+      )}
+
+      {mode === 'title' && s[2] && (
+        <StepCard num={2} title="Literature Search" status={s[2].status}>
+          {s[2].status === 'loading' && (
+            <Dots text={s[2].msg || 'Searching Semantic Scholar for top cited papers…'} />
+          )}
+          {s[2].status === 'error' && <div className="error-box">{s[2].error}</div>}
+          {s[2].status === 'done'  && (
+            <LiteratureDisplay papers={s[2].data} relevantSet={relevantSet} />
+          )}
+        </StepCard>
+      )}
+
+      {mode === 'title' && s[3] && (
+        <StepCard num={3} title="Citation Mining Report" status={s[3].status}>
+          {s[3].status === 'loading' && <Dots text="Mining citation patterns…" />}
+          {s[3].status === 'error'   && <div className="error-box">{s[3].error}</div>}
+          {s[3].status === 'done'    && (
+            <MiningDisplay data={s[3].data} relevance={s[3].relevance} papers={(s[2] && s[2].data) || []} />
+          )}
+        </StepCard>
+      )}
+
+      {mode === 'title' && s[4] && (
+        <StepCard num={4} title="Abstract Decomposition" status={s[4].status}>
+          {s[4].status === 'loading' && <Dots text="Decomposing your abstract…" />}
+          {s[4].status === 'error'   && <div className="error-box">{s[4].error}</div>}
+          {s[4].status === 'done'    && <DecompDisplay data={s[4].data} />}
+        </StepCard>
+      )}
+
+      {mode === 'title' && s[5] && (
+        <StepCard num={5} title="Title Recommendations" status={s[5].status}>
+          {s[5].status === 'loading' && <Dots text="Generating and scoring titles…" />}
+          {s[5].status === 'error'   && <div className="error-box">{s[5].error}</div>}
+          {s[5].status === 'done'    && (s[5].data || []).map((item, i) => (
+            <TitleCard key={i} item={item} isWinner={false} />
+          ))}
+        </StepCard>
+      )}
+
+      {mode === 'title' && s[6] && (
+        <StepCard num={6} title="Winner Declaration" status={s[6].status}>
+          {s[6].status === 'loading' && <Dots text="Selecting winner…" />}
+          {s[6].status === 'error'   && <div className="error-box">{s[6].error}</div>}
+          {s[6].status === 'done' && s[6].data && (
+            <div className="winner-wrap">
+              <div className="winner-banner">★ Recommended Title</div>
+              <p className="winner-title">{s[6].data.title}</p>
+              <p className="winner-just">{s[6].data.justification}</p>
+              <div className="winner-foot">
+                <CopyBtn text={s[6].data.title} />
+              </div>
+            </div>
+          )}
+        </StepCard>
+      )}
+
+      {/* ── Journal mode results ── */}
+      {mode === 'journal' && journalSteps !== null && <hr className="div" />}
+
+      {mode === 'journal' && journalSteps !== null && journalSteps.status === 'loading' && (
+        <StepCard num={1} title="Finding Journals" status="loading">
+          <Dots text={journalSteps.msg || 'Searching for matching journals…'} />
+        </StepCard>
+      )}
+      {mode === 'journal' && journalSteps !== null && journalSteps.status === 'error' && (
+        <StepCard num={1} title="Journal Search" status="error">
+          <div className="error-box">{journalSteps.error}</div>
+        </StepCard>
+      )}
+      {mode === 'journal' && journalSteps !== null && journalSteps.status === 'done' && (
+        <StepCard num={1} title="Journal Recommendations" status="done">
+          <div className="journal-list">
+            {(journalSteps.data || []).map(function(j, i) {
+              return <JournalCard key={i} item={j} rank={j.rank || i + 1} />;
+            })}
+          </div>
+        </StepCard>
+      )}
+
+      {/* ── Abstract mode results ── */}
+      {mode === 'abstract' && abstractResult !== null && <hr className="div" />}
+
+      {mode === 'abstract' && abstractResult !== null && abstractResult.status === 'loading' && (
+        <StepCard num={1} title="Abstract Analysis" status="loading">
+          <Dots text="Scoring and improving your abstract…" />
+        </StepCard>
+      )}
+      {mode === 'abstract' && abstractResult !== null && abstractResult.status === 'error' && (
+        <StepCard num={1} title="Abstract Analysis" status="error">
+          <div className="error-box">{abstractResult.error}</div>
+        </StepCard>
+      )}
+      {mode === 'abstract' && abstractResult !== null && abstractResult.status === 'done' && (
+        <StepCard num={1} title="Abstract Feedback" status="done">
+          <AbstractResult data={abstractResult.data} />
+        </StepCard>
+      )}
+
+      {/* ── Conclusion mode results ── */}
+      {mode === 'conclusion' && conclusionResult !== null && <hr className="div" />}
+
+      {mode === 'conclusion' && conclusionResult !== null && conclusionResult.status === 'loading' && (
+        <StepCard num={1} title="Conclusion Analysis" status="loading">
+          <Dots text="Evaluating your conclusion…" />
+        </StepCard>
+      )}
+      {mode === 'conclusion' && conclusionResult !== null && conclusionResult.status === 'error' && (
+        <StepCard num={1} title="Conclusion Analysis" status="error">
+          <div className="error-box">{conclusionResult.error}</div>
+        </StepCard>
+      )}
+      {mode === 'conclusion' && conclusionResult !== null && conclusionResult.status === 'done' && (
+        <StepCard num={1} title="Conclusion Feedback" status="done">
+          <ConclusionResult data={conclusionResult.data} />
+        </StepCard>
+      )}
+
+      <div ref={endRef} />
+
+      {/* ── Footer ── */}
+      <footer className="footer">
+        <p>
+          Powered by{' '}
+          <a href="https://www.semanticscholar.org" target="_blank" rel="noopener noreferrer">Semantic Scholar</a>
+          {' '}+{' '}
+          <span style={{ fontFamily:'var(--mono)', fontSize:'.75rem', color:'var(--muted)' }}>
+            {(MODELS.find(function(m) { return m.id === selectedModel; }) || {}).label || selectedModel}
+          </span>
+        </p>
+        {(Object.keys(s).length > 0 || journalSteps !== null || abstractResult !== null || conclusionResult !== null) && (
+          <button className="btn-ghost" onClick={reset}>↺ Start over</button>
+        )}
+      </footer>
+
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>
