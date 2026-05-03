@@ -1195,7 +1195,53 @@ var CHAPTER_FRAMEWORKS = {
     name: 'SODA', label: 'Discussion',
     dims: { S: 'Summary (non-repetitive)', O: 'Originality', D: 'Depth of Explanation', A: 'Applicability' },
     max: 80
-  }
+  },
+
+  // ── Review ──────────────────────────────────────────────────
+  'rev-intro':        { name: 'FRAME',  label: 'Introduction',     max: 100, dims: { F:'Field context', R:'Rationale', A:'Aims', M:'Method preview', E:'Evidence gap' } },
+  'rev-search':       { name: 'SEARCH', label: 'Search Strategy',  max: 120, dims: { S:'Sources', E:'Eligibility', A:'Algorithm', R:'Replicable', C:'Coverage', H:'Handling bias' } },
+  'rev-synthesis':    { name: 'WEAVE',  label: 'Synthesis',        max: 100, dims: { W:'Width', Ev:'Evidence quality', A:'Analysis depth', Vc:'Voices reconciled', Eg:'Emerging gaps' } },
+  'rev-implications': { name: 'REACH',  label: 'Implications',     max: 100, dims: { R:'Recommendations', E:'Evidence strength', A:'Applicability', C:'Caveats', H:'Horizon' } },
+
+  // ── Perspective / World View ─────────────────────────────────
+  'pv-opening':    { name: 'VOICE', label: 'Opening',    max: 100, dims: { V:'Viewpoint', O:'Originality', I:'Importance', C:'Credibility', E:'Engagement' } },
+  'pv-foundation': { name: 'ROOTS', label: 'Foundation', max: 100, dims: { R:'Relevance', Ob:'Objectivity', Or:'Origins', T:'Thoughtful interpretation', S:'Scope' } },
+  'pv-argument':   { name: 'LOGIC', label: 'Argument',   max: 100, dims: { L:'Linear build', O:'Originality', G:'Grounds', I:'Incorporates opposition', C:'Coherence' } },
+  'pv-closing':    { name: 'SPARK', label: 'Closing',    max: 100, dims: { S:'Synthesis', P:'Practical implications', A:'Action', R:'Resonance', K:'Knowledge advance' } },
+
+  // ── Policy Brief ─────────────────────────────────────────────
+  'pb-summary':         { name: 'BRIEF', label: 'Executive Summary',  max: 100, dims: { B:'Bottom line', R:'Readability', I:'Issue framed', E:'Evidence signaled', F:'Focus' } },
+  'pb-problem':         { name: 'SCALE', label: 'Problem Statement',  max: 100, dims: { S:'Scope', C:'Causes', A:'Affected parties', L:'Leverage', E:'Evidence of magnitude' } },
+  'pb-evidence':        { name: 'PROOF', label: 'Evidence',           max: 100, dims: { P:'Precision', R:'Relevance', Ob:'Objectivity', Or:'Origins', F:'Format' } },
+  'pb-recommendations': { name: 'STEPS', label: 'Recommendations',   max: 100, dims: { Sp:'Specificity', T:'Timeliness', E:'Evidence-grounded', Pr:'Practical', St:'Stakeholder-aware' } },
+
+  // ── Feature Article ──────────────────────────────────────────
+  'ft-lead':     { name: 'GRAB',  label: 'Lead / Hook',      max: 80,  dims: { G:'Gripping', R:'Relevance bridge', A:'Accessible', B:'Bridge' } },
+  'ft-nutgraph': { name: 'PIVOT', label: 'Nut Graph',        max: 100, dims: { P:'Purpose', I:'Importance', V:'Voice', O:'Originality', T:'Transition' } },
+  'ft-body':     { name: 'FLOW',  label: 'Body / Narrative', max: 80,  dims: { F:'Facts integrated', L:'Language', O:'Origins', W:'Well-paced' } },
+  'ft-closing':  { name: 'ECHO',  label: 'Closing',          max: 80,  dims: { E:'Emotional resonance', C:'Circle back', H:'Horizon', O:'Open insight' } },
+
+  // ── Q&A ──────────────────────────────────────────────────────
+  'qa-intro':    { name: 'INTRO', label: 'Context Introduction', max: 100, dims: { I:'Identity', N:'Now', T:'Transparency', R:'Relevance', O:'Opening hook' } },
+  'qa-exchange': { name: 'QUERY', label: 'Q&A Exchange',         max: 100, dims: { Q:'Question depth', U:'Unique insights', E:'Edited cleanly', R:'Rhythm', Y:'Yield' } },
+  'qa-wrap':     { name: 'LAND',  label: 'Wrap',                 max: 80,  dims: { L:'Lasting impression', A:'Arc completed', N:'New knowledge', D:'Direction' } },
+
+  // ── Correspondence ───────────────────────────────────────────
+  'co-opening':  { name: 'CITE',  label: 'Opening',  max: 80,  dims: { C:'Citation', I:'Intent', T:'Tone', E:'Engaging' } },
+  'co-argument': { name: 'POINT', label: 'Argument', max: 100, dims: { P:'Precision', O:'Originality', I:'Informed', N:'New contribution', T:'Tight' } },
+  'co-closing':  { name: 'SIGN',  label: 'Closing',  max: 80,  dims: { S:'Synthesis', I:'Implication', G:'Generosity', N:'Next step' } },
+};
+
+var CHAPTER_SETS = {
+  'article':       ['introduction', 'litreview', 'methods', 'results', 'discussion'],
+  'analysis':      ['introduction', 'litreview', 'methods', 'results', 'discussion'],
+  'review':        ['rev-intro', 'rev-search', 'rev-synthesis', 'rev-implications'],
+  'perspective':   ['pv-opening', 'pv-foundation', 'pv-argument', 'pv-closing'],
+  'worldview':     ['pv-opening', 'pv-foundation', 'pv-argument', 'pv-closing'],
+  'policy-brief':  ['pb-summary', 'pb-problem', 'pb-evidence', 'pb-recommendations'],
+  'feature':       ['ft-lead', 'ft-nutgraph', 'ft-body', 'ft-closing'],
+  'qa':            ['qa-intro', 'qa-exchange', 'qa-wrap'],
+  'correspondence':['co-opening', 'co-argument', 'co-closing'],
 };
 
 var PAPER_TYPES = [
@@ -1209,8 +1255,6 @@ var PAPER_TYPES = [
   { key: 'qa',             label: 'Q&A'            },
   { key: 'worldview',      label: 'World View'     },
 ];
-
-var NO_CHAPTER_TYPES = ['correspondence', 'qa', 'worldview'];
 
 var ABSTRACT_FRAMEWORKS = {
   'article':       { name: 'IMRAD-O', dims: { I:'Introduction', M:'Methods', R:'Results', A:'Analysis', O:'Objective' } },
@@ -1918,6 +1962,15 @@ function App() {
   const provider   = modelProvider(selectedModel);
   const currentKey = keys[provider] || '';
 
+  // Reset chapterType when paper type changes to a type with a different chapter set.
+  useEffect(function() {
+    var set = CHAPTER_SETS[paperType] || CHAPTER_SETS['article'];
+    if (set.indexOf(chapterType) === -1) {
+      setChapterType(set[0]);
+      setChapterRes(null);
+    }
+  }, [paperType]);
+
   // Persist model choice and all keys to sessionStorage.
   useEffect(function() {
     sessionStorage.setItem('ts_model', selectedModel);
@@ -2479,29 +2532,19 @@ function App() {
       )}
 
       {/* ── Chapter Review mode ── */}
-      {mode === 'chapter' && NO_CHAPTER_TYPES.indexOf(paperType) !== -1 && (
-        <div className="warn-box" style={{ marginBottom:'1rem' }}>
-          Chapter review is designed for full research articles. For <strong>{paperType.replace('-', ' ')}</strong>, the <strong>Abstract Feedback</strong> or <strong>Contribution Check</strong> tools are more applicable.
-        </div>
-      )}
-      {mode === 'chapter' && NO_CHAPTER_TYPES.indexOf(paperType) === -1 && (
+      {mode === 'chapter' && (
         <div>
           <div className="sub-tabs" role="tablist">
-            {[
-              { key:'introduction', lbl:'Introduction (CARS)'   },
-              { key:'litreview',    lbl:'Lit Review (DEPTH)'    },
-              { key:'methods',      lbl:'Methods (RECIPE)'      },
-              { key:'results',      lbl:'Results (CLEAR)'       },
-              { key:'discussion',   lbl:'Discussion (SODA)'     },
-            ].map(function(ch) {
+            {(CHAPTER_SETS[paperType] || CHAPTER_SETS['article']).map(function(key) {
+              var fw = CHAPTER_FRAMEWORKS[key] || {};
               return (
                 <button
-                  key={ch.key}
-                  className={'sub-tab' + (chapterType === ch.key ? ' active' : '')}
-                  onClick={function() { setChapterType(ch.key); setChapterRes(null); }}
+                  key={key}
+                  className={'sub-tab' + (chapterType === key ? ' active' : '')}
+                  onClick={function() { setChapterType(key); setChapterRes(null); }}
                   role="tab"
                   type="button"
-                >{ch.lbl}</button>
+                >{fw.label} ({fw.name})</button>
               );
             })}
           </div>
