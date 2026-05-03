@@ -630,6 +630,13 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
 .key-step-num { font-family: var(--mono); font-size: .65rem; font-weight: 600; color: #fff; background: var(--accent); border-radius: 99px; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: .15rem; }
 .key-guide-url { display: inline-block; margin-top: .55rem; font-family: var(--mono); font-size: .72rem; color: var(--accent); background: var(--hi); border: 1px solid rgba(196,84,26,.2); padding: .2rem .55rem; border-radius: var(--r); }
 
+/* ── Paper type bar ── */
+.paper-type-bar { display: flex; flex-wrap: wrap; gap: .3rem; margin-bottom: 1.25rem; align-items: center; }
+.paper-type-lbl { font-size: .75rem; color: var(--muted); font-weight: 500; margin-right: .3rem; white-space: nowrap; }
+.pt-btn { background: none; border: 1px solid var(--border); color: var(--muted); font-family: var(--sans); font-size: .74rem; padding: .25rem .6rem; border-radius: 99px; cursor: pointer; transition: all .12s; white-space: nowrap; }
+.pt-btn:hover:not(.active) { border-color: var(--ink); color: var(--ink); }
+.pt-btn.active { border-color: var(--accent); color: var(--accent); background: var(--hi); font-weight: 600; }
+
 /* Responsive */
 @media (max-width:600px) {
   .header h1 { font-size: 2.2rem; }
@@ -1055,7 +1062,7 @@ T — Time-bound (0–20)
 // corpus = mineCorpus() output (JS-computed, exact)
 // aiStructure = dominant_structure string from promptRelevance AI call
 // rel5papers = array of paper objects selected by promptRelevance AI call
-function prompt3(abstract, field, corpus, aiStructure, decomp, rel5papers) {
+function prompt3(abstract, field, corpus, aiStructure, decomp, rel5papers, paperType) {
   var relList = rel5papers
     .map(function(p) {
       return '"' + p.title + '" (' + (p.year || 'n.d.') + (p.venue ? ', ' + p.venue : '') + ')';
@@ -1068,7 +1075,7 @@ function prompt3(abstract, field, corpus, aiStructure, decomp, rel5papers) {
 
   return {
     system: 'You are an expert academic title specialist. The abstract is your single source of truth — never claim more than it supports (Achievable). The vocabulary pool contains words with VERIFIED frequency counts from real papers in this field. Use them. Return only valid JSON, no markdown.',
-    user: 'Generate 3 title recommendations grounded in the corpus data below.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nFIELD: ' + field.discipline + ' — ' + field.subfield + '\n\nCORPUS STATISTICS (computed from ' + corpus.n + ' top-cited papers — these are exact counts, not estimates):\n- Average title length: ' + corpus.avgLen + ' words (range ' + corpus.lenRange + ')\n- Colon usage: ' + corpus.colonCount + '/' + corpus.n + ' titles (' + corpus.colonPct + '%)\n- Dominant structure: ' + aiStructure + '\n\nVOCABULARY POOL (word = number of distinct paper titles it appears in):\n- Tier 1 — 5+ titles: ' + tier1str + '\n- Tier 2 — 3-4 titles: ' + tier2str + '\n- Tier 3 — 2 titles: ' + tier3str + '\n\nMOST RELEVANT CITED PAPERS (semantically matched to this abstract):\n  ' + relList + '\n\nABSTRACT DECOMPOSITION:\n- Core contribution: ' + decomp.core_contribution + '\n- Methodology: ' + decomp.methodology + '\n- Population/domain: ' + decomp.population_domain + '\n- Key variables: ' + (decomp.key_variables || []).join(', ') + '\n- Time period: ' + decomp.time_period + '\n\n' + RUBRIC + '\n\nGenerate:\n1. "SMART Maximizer" — highest total SMART score possible\n2. "Concise SMART" — ≤12 words, strong SMART\n3. "Citation-Matched" — follows the dominant structural template exactly\n\nRules:\n- MUST use words from Tier 1 and Tier 2 — these are real field vocabulary\n- A-score: abstract evidence only, zero overstatement\n- fix_notes: populate only when score < 15; quote the abstract directly\n- T = null if the paper is theoretical or timeless\n- winner = highest total (tie → prefer SMART Maximizer)\n\nReturn JSON exactly:\n{\n  "titles": [\n    {\n      "type": "SMART Maximizer",\n      "title": "",\n      "scores": {"S":0,"M":0,"A":0,"R":0,"T":0},\n      "total": 0,\n      "fix_notes": {"S":"","M":"","A":"","R":"","T":""},\n      "justification": ""\n    },\n    {\n      "type": "Concise SMART",\n      "title": "",\n      "scores": {"S":0,"M":0,"A":0,"R":0,"T":0},\n      "total": 0,\n      "fix_notes": {"S":"","M":"","A":"","R":"","T":""},\n      "justification": ""\n    },\n    {\n      "type": "Citation-Matched",\n      "title": "",\n      "scores": {"S":0,"M":0,"A":0,"R":0,"T":0},\n      "total": 0,\n      "fix_notes": {"S":"","M":"","A":"","R":"","T":""},\n      "justification": ""\n    }\n  ],\n  "winner": {\n    "type": "",\n    "title": "",\n    "justification": ""\n  }\n}',
+    user: 'Generate 3 title recommendations grounded in the corpus data below.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nFIELD: ' + field.discipline + ' — ' + field.subfield + '\nPAPER TYPE: ' + (paperType || 'article') + '\n\nCORPUS STATISTICS (computed from ' + corpus.n + ' top-cited papers — these are exact counts, not estimates):\n- Average title length: ' + corpus.avgLen + ' words (range ' + corpus.lenRange + ')\n- Colon usage: ' + corpus.colonCount + '/' + corpus.n + ' titles (' + corpus.colonPct + '%)\n- Dominant structure: ' + aiStructure + '\n\nVOCABULARY POOL (word = number of distinct paper titles it appears in):\n- Tier 1 — 5+ titles: ' + tier1str + '\n- Tier 2 — 3-4 titles: ' + tier2str + '\n- Tier 3 — 2 titles: ' + tier3str + '\n\nMOST RELEVANT CITED PAPERS (semantically matched to this abstract):\n  ' + relList + '\n\nABSTRACT DECOMPOSITION:\n- Core contribution: ' + decomp.core_contribution + '\n- Methodology: ' + decomp.methodology + '\n- Population/domain: ' + decomp.population_domain + '\n- Key variables: ' + (decomp.key_variables || []).join(', ') + '\n- Time period: ' + decomp.time_period + '\n\n' + RUBRIC + '\n\nGenerate:\n1. "SMART Maximizer" — highest total SMART score possible\n2. "Concise SMART" — ≤12 words, strong SMART\n3. "Citation-Matched" — follows the dominant structural template exactly\n\nRules:\n- MUST use words from Tier 1 and Tier 2 — these are real field vocabulary\n- A-score: abstract evidence only, zero overstatement\n- fix_notes: populate only when score < 15; quote the abstract directly\n- T = null if the paper is theoretical or timeless\n- winner = highest total (tie → prefer SMART Maximizer)\n\nReturn JSON exactly:\n{\n  "titles": [\n    {\n      "type": "SMART Maximizer",\n      "title": "",\n      "scores": {"S":0,"M":0,"A":0,"R":0,"T":0},\n      "total": 0,\n      "fix_notes": {"S":"","M":"","A":"","R":"","T":""},\n      "justification": ""\n    },\n    {\n      "type": "Concise SMART",\n      "title": "",\n      "scores": {"S":0,"M":0,"A":0,"R":0,"T":0},\n      "total": 0,\n      "fix_notes": {"S":"","M":"","A":"","R":"","T":""},\n      "justification": ""\n    },\n    {\n      "type": "Citation-Matched",\n      "title": "",\n      "scores": {"S":0,"M":0,"A":0,"R":0,"T":0},\n      "total": 0,\n      "fix_notes": {"S":"","M":"","A":"","R":"","T":""},\n      "justification": ""\n    }\n  ],\n  "winner": {\n    "type": "",\n    "title": "",\n    "justification": ""\n  }\n}',
   };
 }
 
@@ -1092,7 +1099,7 @@ function promptJournal1(abstract) {
   };
 }
 
-function promptJournal2(abstract, field, methodology, journalData, prefs) {
+function promptJournal2(abstract, field, methodology, journalData, prefs, paperType) {
   const rows = journalData.map(function(j, i) {
     const oa = j.is_oa === true ? 'open-access' : 'subscription';
     const stats = j.summary_stats || {};
@@ -1117,7 +1124,7 @@ function promptJournal2(abstract, field, methodology, journalData, prefs) {
   }
 
   const access = prefs.access && prefs.access !== 'any' ? prefs.access : 'no preference';
-  const msType = prefs.manuscriptType || 'research article';
+  const msType = paperType ? paperType.replace('-', ' ') : 'article';
   const oaNote = prefs.oaMandate ? 'FUNDER REQUIRES OPEN ACCESS — only recommend open-access or hybrid journals.' : '';
 
   return {
@@ -1130,17 +1137,27 @@ function promptJournal2(abstract, field, methodology, journalData, prefs) {
    ABSTRACT IMPROVER — PROMPT
    ───────────────────────────────────────────────────────────── */
 
-function promptAbstract(abstract) {
+function promptAbstract(abstract, paperType) {
+  var typeKey = paperType || 'article';
+  var fw = ABSTRACT_FRAMEWORKS[typeKey] || ABSTRACT_FRAMEWORKS['article'];
+  var dimKeys = Object.keys(fw.dims);
+  var dimList = dimKeys.map(function(k) { return '- ' + k + ': ' + fw.dims[k]; }).join('\n');
+  var scoreJson = '{' + dimKeys.map(function(k) { return '"' + k + '":0'; }).join(',') + '}';
   return {
-    system: 'You are an expert academic writing coach. Evaluate the abstract against IMRAD-O criteria and give the author precise feedback on what to add, what to remove, and what to improve. Do NOT rewrite. Return only valid JSON, no markdown.',
-    user: 'Evaluate this abstract and give the author actionable feedback.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nIMRAD-O SCORING (each 0-20):\n- I: Introduction/Background — context and motivation clearly stated\n- M: Methods — approach and design clearly described\n- R: Results — key findings explicitly stated with data\n- A: Analysis/Discussion — interpretation and implications present\n- O: Objective/Aim — research question or aim clearly stated\n\nFor every score below 18, add at least one feedback item. Use action "add" for missing content, "remove" for redundant/vague content, "improve" for weak but present content.\n\nReturn JSON exactly:\n{\n  "scores": {"I":0,"M":0,"R":0,"A":0,"O":0},\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "element": "I|M|R|A|O",\n      "action": "add|remove|improve",\n      "severity": "high|medium|low",\n      "note": "Tell the author exactly what content to add, remove, or change — be specific"\n    }\n  ]\n}',
+    system: 'You are an expert academic writing coach. Evaluate the abstract against ' + fw.name + ' criteria and give the author precise feedback on what to add, what to remove, and what to improve. Do NOT rewrite. Return only valid JSON, no markdown.',
+    user: 'Evaluate this ' + typeKey.replace('-', ' ') + ' abstract and give the author actionable feedback.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nPAPER TYPE: ' + typeKey.replace('-', ' ') + '\n\n' + fw.name + ' SCORING (each 0-20):\n' + dimList + '\n\nFor every score below 18, add at least one feedback item. Use action "add" for missing content, "remove" for redundant/vague content, "improve" for weak but present content.\n\nReturn JSON exactly:\n{\n  "scores": ' + scoreJson + ',\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "element": "' + dimKeys[0] + '",\n      "action": "add|remove|improve",\n      "severity": "high|medium|low",\n      "note": "Tell the author exactly what content to add, remove, or change — be specific"\n    }\n  ]\n}',
   };
 }
 
-function promptConclusion(conclusion) {
+function promptConclusion(conclusion, paperType) {
+  var typeKey = paperType || 'article';
+  var fw = CONCLUSION_FRAMEWORKS[typeKey] || CONCLUSION_FRAMEWORKS['article'];
+  var dimKeys = Object.keys(fw.dims);
+  var dimList = dimKeys.map(function(k) { return '- ' + k + ': ' + fw.dims[k]; }).join('\n');
+  var scoreJson = '{' + dimKeys.map(function(k) { return '"' + k + '":0'; }).join(',') + '}';
   return {
-    system: 'You are an expert academic writing coach. Evaluate the conclusion against SCALF criteria and give the author precise feedback on what to add, what to remove, and what to improve. Do NOT rewrite. Return only valid JSON, no markdown.',
-    user: 'Evaluate this conclusion and give the author actionable feedback.\n\nCONCLUSION:\n"""\n' + conclusion + '\n"""\n\nSCALF SCORING (each 0-20):\n- S: Summary — key findings are clearly summarised (avoid copy-pasting the abstract)\n- C: Contribution — the paper\'s novel contribution is explicitly stated\n- A: Application — practical implications or real-world significance are discussed\n- L: Limitations — limitations of the study are honestly acknowledged\n- F: Future — concrete future research directions are suggested\n\nFor every score below 18, add at least one feedback item. Use action "add" for missing content, "remove" for redundant/vague content, "improve" for weak but present content.\n\nReturn JSON exactly:\n{\n  "scores": {"S":0,"C":0,"A":0,"L":0,"F":0},\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "element": "S|C|A|L|F",\n      "action": "add|remove|improve",\n      "severity": "high|medium|low",\n      "note": "Tell the author exactly what content to add, remove, or change — be specific"\n    }\n  ]\n}',
+    system: 'You are an expert academic writing coach. Evaluate the conclusion against ' + fw.name + ' criteria and give the author precise feedback on what to add, what to remove, and what to improve. Do NOT rewrite. Return only valid JSON, no markdown.',
+    user: 'Evaluate this ' + typeKey.replace('-', ' ') + ' conclusion and give the author actionable feedback.\n\nCONCLUSION:\n"""\n' + conclusion + '\n"""\n\nPAPER TYPE: ' + typeKey.replace('-', ' ') + '\n\n' + fw.name + ' SCORING (each 0-20):\n' + dimList + '\n\nFor every score below 18, add at least one feedback item. Use action "add" for missing content, "remove" for redundant/vague content, "improve" for weak but present content.\n\nReturn JSON exactly:\n{\n  "scores": ' + scoreJson + ',\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "element": "' + dimKeys[0] + '",\n      "action": "add|remove|improve",\n      "severity": "high|medium|low",\n      "note": "Tell the author exactly what content to add, remove, or change — be specific"\n    }\n  ]\n}',
   };
 }
 
@@ -1176,14 +1193,52 @@ var CHAPTER_FRAMEWORKS = {
   }
 };
 
-function promptChapter(chapterType, text) {
+var PAPER_TYPES = [
+  { key: 'article',        label: 'Article'        },
+  { key: 'analysis',       label: 'Analysis'       },
+  { key: 'correspondence', label: 'Correspondence' },
+  { key: 'review',         label: 'Review'         },
+  { key: 'perspective',    label: 'Perspective'    },
+  { key: 'policy-brief',   label: 'Policy Brief'   },
+  { key: 'feature',        label: 'Feature'        },
+  { key: 'qa',             label: 'Q&A'            },
+  { key: 'worldview',      label: 'World View'     },
+];
+
+var NO_CHAPTER_TYPES = ['correspondence', 'qa', 'worldview'];
+
+var ABSTRACT_FRAMEWORKS = {
+  'article':       { name: 'IMRAD-O', dims: { I:'Introduction', M:'Methods', R:'Results', A:'Analysis', O:'Objective' } },
+  'analysis':      { name: 'IMRAD-O', dims: { I:'Introduction', M:'Methods', R:'Results', A:'Analysis', O:'Objective' } },
+  'correspondence':{ name: 'POINT',   dims: { Po:'Point/Claim', Or:'Original angle', Im:'Impact on debate', No:'Novelty', To:'Tone' } },
+  'review':        { name: 'SCOPE',   dims: { Sc:'Scope definition', Cr:'Search criteria', Ob:'Objective', Sy:'Synthesis quality', Eg:'Evidence gaps' } },
+  'perspective':   { name: 'OASIS',   dims: { Op:'Opinion clarity', Ar:'Argument quality', Su:'Supporting evidence', Im:'Implications', Si:'Significance' } },
+  'policy-brief':  { name: 'POWER',   dims: { Pr:'Problem statement', Ob:'Objective', Ev:'Evidence summary', Re:'Recommendations', Fe:'Feasibility' } },
+  'feature':       { name: 'STORY',   dims: { St:'Strong opening', Th:'Theme clarity', An:'Original angle', De:'Research depth', Ti:'Timeliness' } },
+  'qa':            { name: 'DEPTH',   dims: { Dq:'Question depth', Ec:'Expert context', Pa:'Answer precision', Co:'Topic coverage', Lm:'Limitations' } },
+  'worldview':     { name: 'VOICE',   dims: { Vi:'Viewpoint clarity', Or:'Originality', Ip:'Impact potential', Cr:'Credibility', Eg:'Evidence grounding' } },
+};
+
+var CONCLUSION_FRAMEWORKS = {
+  'article':       { name: 'SCALF',  dims: { S:'Summary', C:'Contribution', A:'Application', L:'Limitations', F:'Future Work' } },
+  'analysis':      { name: 'SCALF',  dims: { S:'Summary', C:'Contribution', A:'Application', L:'Limitations', F:'Future Work' } },
+  'correspondence':{ name: 'RECAP',  dims: { Re:'Restatement', Ex:'Extended argument', Ca:'Call to action', Pa:'Parting observation' } },
+  'review':        { name: 'RECOM',  dims: { Sy:'Synthesis', Re:'Recommendations', Gg:'Research gaps', In:'Implications', Fu:'Future directions' } },
+  'perspective':   { name: 'STANCE', dims: { St:'Stance restatement', Su:'Supporting summary', Im:'Implications', Cd:'Call to debate', Vc:'Value claim' } },
+  'policy-brief':  { name: 'POLICY', dims: { Pr:'Priority summary', Ac:'Action required', Co:'Consequences', Sh:'Stakeholders', Ti:'Timeline' } },
+  'feature':       { name: 'CLOSE',  dims: { Im:'Impact statement', Sc:'Scene callback', Le:'Lasting insight', Au:'Audience call' } },
+  'qa':            { name: 'WRAP',   dims: { An:'Answer summary', Ca:'Caveats', Fu:'Future questions', Pr:'Practical implications' } },
+  'worldview':     { name: 'STAND',  dims: { Va:'Value assertion', Su:'Summary argument', Ch:'Challenge to readers', Ip:'Inspirational message' } },
+};
+
+function promptChapter(chapterType, text, paperType) {
   var fw = CHAPTER_FRAMEWORKS[chapterType];
   var dimKeys = Object.keys(fw.dims);
   var dimList = dimKeys.map(function(k) { return '- ' + k + ': ' + fw.dims[k]; }).join('\n');
   var scoreJson = '{' + dimKeys.map(function(k) { return '"' + k + '":0'; }).join(',') + '}';
   return {
     system: 'You are an expert academic writing coach. Evaluate the ' + fw.label + ' chapter against the ' + fw.name + ' framework. Give the author precise, actionable feedback on what to add, remove, or improve. Do NOT rewrite any content. Return only valid JSON, no markdown.',
-    user: 'Evaluate this ' + fw.label + ' chapter.\n\n' + fw.label.toUpperCase() + ':\n"""\n' + text + '\n"""\n\n' + fw.name + ' SCORING (each 0-20):\n' + dimList + '\n\nFor every score below 16, add at least one feedback item. Use action "add" for missing content, "remove" for redundant/vague content, "improve" for present-but-weak content.\n\nReturn JSON exactly:\n{\n  "scores": ' + scoreJson + ',\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "element": "' + dimKeys[0] + '",\n      "action": "add|remove|improve",\n      "severity": "high|medium|low",\n      "note": "Tell the author exactly what to add, remove, or change"\n    }\n  ]\n}',
+    user: 'Evaluate this ' + fw.label + ' chapter.\n\nPAPER TYPE: ' + (paperType || 'article') + '\n\n' + fw.label.toUpperCase() + ':\n"""\n' + text + '\n"""\n\n' + fw.name + ' SCORING (each 0-20):\n' + dimList + '\n\nFor every score below 16, add at least one feedback item. Use action "add" for missing content, "remove" for redundant/vague content, "improve" for present-but-weak content.\n\nReturn JSON exactly:\n{\n  "scores": ' + scoreJson + ',\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "element": "' + dimKeys[0] + '",\n      "action": "add|remove|improve",\n      "severity": "high|medium|low",\n      "note": "Tell the author exactly what to add, remove, or change"\n    }\n  ]\n}',
   };
 }
 
@@ -1191,10 +1246,10 @@ function promptChapter(chapterType, text) {
    RESEARCH QUESTION EVALUATOR — PROMPT
    ───────────────────────────────────────────────────────────── */
 
-function promptResearchQ(rq, studyType) {
+function promptResearchQ(rq, studyType, paperType) {
   return {
     system: 'You are an expert in research methodology. Evaluate the research question against FINER criteria. Do NOT rewrite the question. Return only valid JSON, no markdown.',
-    user: 'Evaluate this research question.\n\nRESEARCH QUESTION:\n"""\n' + rq + '\n"""\n\nSTUDY TYPE: ' + studyType + '\n\nFINER SCORING (each 0-20):\n- F: Feasible — can this study realistically be conducted with reasonable resources?\n- I: Interesting — does it address something the field currently cares about?\n- N: Novel — does it advance beyond existing knowledge?\n- E: Ethical — can it be conducted without undue risk to participants?\n- R: Relevant — is it relevant to current field priorities?\n\nFor every score below 16, add at least one feedback item.\n\nReturn JSON exactly:\n{\n  "scores": {"F":0,"I":0,"N":0,"E":0,"R":0},\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "criterion": "F|I|N|E|R",\n      "issue": "The specific problem with this criterion",\n      "suggestion": "What to change to improve this score"\n    }\n  ]\n}',
+    user: 'Evaluate this research question.\n\nRESEARCH QUESTION:\n"""\n' + rq + '\n"""\n\nSTUDY TYPE: ' + studyType + '\nPAPER TYPE: ' + (paperType || 'article') + '\n\nFINER SCORING (each 0-20):\n- F: Feasible — can this study realistically be conducted with reasonable resources?\n- I: Interesting — does it address something the field currently cares about?\n- N: Novel — does it advance beyond existing knowledge?\n- E: Ethical — can it be conducted without undue risk to participants?\n- R: Relevant — is it relevant to current field priorities?\n\nFor every score below 16, add at least one feedback item.\n\nReturn JSON exactly:\n{\n  "scores": {"F":0,"I":0,"N":0,"E":0,"R":0},\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "criterion": "F|I|N|E|R",\n      "issue": "The specific problem with this criterion",\n      "suggestion": "What to change to improve this score"\n    }\n  ]\n}',
   };
 }
 
@@ -1202,10 +1257,10 @@ function promptResearchQ(rq, studyType) {
    CONTRIBUTION CLARITY CHECKER — PROMPT
    ───────────────────────────────────────────────────────────── */
 
-function promptContribution(abstract) {
+function promptContribution(abstract, paperType) {
   return {
     system: 'You are a rigorous peer reviewer. Identify every claim of novelty in the abstract and assess whether the abstract provides evidence for it. Be precise and fair. Return only valid JSON, no markdown.',
-    user: 'Analyse this abstract for contribution clarity.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nFor each claim of novelty or contribution:\n1. Quote the exact claim from the abstract\n2. Classify as: supported (abstract provides evidence), asserted (stated without evidence), or vague (unclear whether new)\n3. State specifically what evidence or qualifier would make the claim defensible\n\nAlso give an overall clarity score 0-100.\n\nReturn JSON exactly:\n{\n  "clarity_score": 0,\n  "verdict": "1-2 sentence overall assessment",\n  "claims": [\n    {\n      "quote": "exact text from abstract",\n      "status": "supported|asserted|vague",\n      "advice": "What to add or change to make this claim defensible"\n    }\n  ]\n}',
+    user: 'Analyse this abstract for contribution clarity.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nPAPER TYPE: ' + (paperType || 'article') + '\n\nFor each claim of novelty or contribution:\n1. Quote the exact claim from the abstract\n2. Classify as: supported (abstract provides evidence), asserted (stated without evidence), or vague (unclear whether new)\n3. State specifically what evidence or qualifier would make the claim defensible\n\nAlso give an overall clarity score 0-100.\n\nReturn JSON exactly:\n{\n  "clarity_score": 0,\n  "verdict": "1-2 sentence overall assessment",\n  "claims": [\n    {\n      "quote": "exact text from abstract",\n      "status": "supported|asserted|vague",\n      "advice": "What to add or change to make this claim defensible"\n    }\n  ]\n}',
   };
 }
 
@@ -1213,13 +1268,13 @@ function promptContribution(abstract) {
    KEYWORDS OPTIMIZER — PROMPT
    ───────────────────────────────────────────────────────────── */
 
-function promptKeywords(abstract, keywordData) {
+function promptKeywords(abstract, keywordData, paperType) {
   var rows = keywordData.map(function(k) {
     return '- "' + k.keyword + '" → ' + (k.count !== null ? k.count.toLocaleString() + ' papers indexed' : 'search failed');
   }).join('\n');
   return {
     system: 'You are an expert in academic information retrieval and keyword optimisation. Evaluate the author\'s keywords and suggest improvements. Return only valid JSON, no markdown.',
-    user: 'Evaluate these keywords for the abstract below.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nKEYWORD PAPER COUNTS (Semantic Scholar):\n' + rows + '\n\nFor each keyword rate specificity: broad (>5000 papers), moderate (500-5000), specific (<500). Judge relevance to this abstract: high/medium/low. Recommend: keep/refine/replace.\n\nAlso suggest 2-3 alternative keywords derived from the abstract that would improve discoverability.\n\nReturn JSON exactly:\n{\n  "overall": "1-2 sentence summary of keyword quality",\n  "keywords": [\n    {\n      "keyword": "",\n      "specificity": "broad|moderate|specific",\n      "relevance": "high|medium|low",\n      "action": "keep|refine|replace",\n      "note": "Why and how to improve"\n    }\n  ],\n  "suggested": [\n    { "keyword": "", "rationale": "Why this term improves discoverability" }\n  ]\n}',
+    user: 'Evaluate these keywords for the abstract below.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nPAPER TYPE: ' + (paperType || 'article') + '\n\nKEYWORD PAPER COUNTS (Semantic Scholar):\n' + rows + '\n\nFor each keyword rate specificity: broad (>5000 papers), moderate (500-5000), specific (<500). Judge relevance to this abstract: high/medium/low. Recommend: keep/refine/replace.\n\nAlso suggest 2-3 alternative keywords derived from the abstract that would improve discoverability.\n\nReturn JSON exactly:\n{\n  "overall": "1-2 sentence summary of keyword quality",\n  "keywords": [\n    {\n      "keyword": "",\n      "specificity": "broad|moderate|specific",\n      "relevance": "high|medium|low",\n      "action": "keep|refine|replace",\n      "note": "Why and how to improve"\n    }\n  ],\n  "suggested": [\n    { "keyword": "", "rationale": "Why this term improves discoverability" }\n  ]\n}',
   };
 }
 
@@ -1593,57 +1648,61 @@ function WritingFeedback({ items, dimMap }) {
 }
 
 function AbstractResult({ data }) {
-  const sc = data.scores || {};
-  const DIMS = { I: 'Introduction', M: 'Methods', R: 'Results', A: 'Analysis', O: 'Objective' };
-  const dimKeys = ['I', 'M', 'R', 'A', 'O'];
-  const total = dimKeys.reduce(function(acc, d) { return acc + (sc[d] || 0); }, 0);
-  const scoreColor = function(v) { return v >= 15 ? 'var(--accent)' : v >= 10 ? '#b87c00' : '#8b2020'; };
+  var fw = (data && data._fw) || ABSTRACT_FRAMEWORKS['article'];
+  var dimKeys = Object.keys(fw.dims);
+  var sc = data.scores || {};
+  var total = dimKeys.reduce(function(acc, d) { return acc + (sc[d] || 0); }, 0);
+  var maxScore = dimKeys.length * 20;
+  var cols = Math.min(dimKeys.length, 5);
+  var scoreColor = function(v) { return v >= 15 ? 'var(--accent)' : v >= 10 ? '#b87c00' : '#8b2020'; };
   return (
     <>
-      <div className="slabel">IMRAD-O Scores</div>
-      <div className="abst-score-grid">
+      <div className="slabel">{fw.name} Scores</div>
+      <div className="abst-score-grid" style={{ gridTemplateColumns: 'repeat(' + cols + ',1fr)' }}>
         {dimKeys.map(function(d) {
           return (
             <div key={d} className="abst-score-box">
               <span className="abst-score-val" style={{ color: scoreColor(sc[d] || 0) }}>{sc[d] || 0}/20</span>
-              <span className="abst-score-lbl">{DIMS[d]}</span>
+              <span className="abst-score-lbl">{fw.dims[d]}</span>
             </div>
           );
         })}
       </div>
       <p style={{ fontFamily:'var(--mono)', fontSize:'.78rem', color:'var(--muted)', marginBottom:'.75rem' }}>
-        Total: <strong style={{ color:'var(--accent)' }}>{total}/100</strong>
+        Total: <strong style={{ color:'var(--accent)' }}>{total}/{maxScore}</strong>
       </p>
       {data.verdict && <p className="abst-verdict">{data.verdict}</p>}
-      <WritingFeedback items={data.feedback || []} dimMap={DIMS} />
+      <WritingFeedback items={data.feedback || []} dimMap={fw.dims} />
     </>
   );
 }
 
 function ConclusionResult({ data }) {
-  const sc = data.scores || {};
-  const DIMS = { S: 'Summary', C: 'Contribution', A: 'Application', L: 'Limitations', F: 'Future Work' };
-  const dimKeys = ['S', 'C', 'A', 'L', 'F'];
-  const total = dimKeys.reduce(function(acc, d) { return acc + (sc[d] || 0); }, 0);
-  const scoreColor = function(v) { return v >= 15 ? 'var(--accent)' : v >= 10 ? '#b87c00' : '#8b2020'; };
+  var fw = (data && data._fw) || CONCLUSION_FRAMEWORKS['article'];
+  var dimKeys = Object.keys(fw.dims);
+  var sc = data.scores || {};
+  var total = dimKeys.reduce(function(acc, d) { return acc + (sc[d] || 0); }, 0);
+  var maxScore = dimKeys.length * 20;
+  var cols = Math.min(dimKeys.length, 5);
+  var scoreColor = function(v) { return v >= 15 ? 'var(--accent)' : v >= 10 ? '#b87c00' : '#8b2020'; };
   return (
     <>
-      <div className="slabel">SCALF Scores</div>
-      <div className="abst-score-grid">
+      <div className="slabel">{fw.name} Scores</div>
+      <div className="abst-score-grid" style={{ gridTemplateColumns: 'repeat(' + cols + ',1fr)' }}>
         {dimKeys.map(function(d) {
           return (
             <div key={d} className="abst-score-box">
               <span className="abst-score-val" style={{ color: scoreColor(sc[d] || 0) }}>{sc[d] || 0}/20</span>
-              <span className="abst-score-lbl">{DIMS[d]}</span>
+              <span className="abst-score-lbl">{fw.dims[d]}</span>
             </div>
           );
         })}
       </div>
       <p style={{ fontFamily:'var(--mono)', fontSize:'.78rem', color:'var(--muted)', marginBottom:'.75rem' }}>
-        Total: <strong style={{ color:'var(--accent)' }}>{total}/100</strong>
+        Total: <strong style={{ color:'var(--accent)' }}>{total}/{maxScore}</strong>
       </p>
       {data.verdict && <p className="abst-verdict">{data.verdict}</p>}
-      <WritingFeedback items={data.feedback || []} dimMap={DIMS} />
+      <WritingFeedback items={data.feedback || []} dimMap={fw.dims} />
     </>
   );
 }
@@ -1821,7 +1880,8 @@ function App() {
   const [running, setRunning]           = useState(false);
   const [steps, setSteps]               = useState({});
   const [mode, setMode]                 = useState('title');
-  const [journalPrefs, setJPrefs]       = useState({ access: 'any', hindex: '', manuscriptType: 'research article', oaMandate: false });
+  const [paperType, setPaperType]       = useState('article');
+  const [journalPrefs, setJPrefs]       = useState({ access: 'any', hindex: '', oaMandate: false });
   const [journalSteps, setJSteps]       = useState(null);
   const [abstractResult, setAbstRes]    = useState(null);
   const [journalRunning, setJRunning]   = useState(false);
@@ -1976,7 +2036,7 @@ function App() {
         var rel5papers = (relevanceResult.relevant_5 || [])
           .map(function(i) { return papers[i - 1]; })
           .filter(Boolean);
-        var p5 = prompt3(abstract, field, corpus, relevanceResult.dominant_structure || '', decomp, rel5papers);
+        var p5 = prompt3(abstract, field, corpus, relevanceResult.dominant_structure || '', decomp, rel5papers, paperType);
         var result = await aiJson(selectedModel, currentKey, p5.system, p5.user);
         var winnerTitle = (result.winner && result.winner.title) || '';
         setStep(5, { status: 'done', data: result.titles || [], winnerTitle: winnerTitle });
@@ -2043,7 +2103,7 @@ function App() {
       }
 
       setJSteps({ status: 'loading', msg: 'Ranking journals for your paper…' });
-      var p2 = promptJournal2(abstract, fieldInfo.field || '', fieldInfo.methodology || '', allJournals, journalPrefs);
+      var p2 = promptJournal2(abstract, fieldInfo.field || '', fieldInfo.methodology || '', allJournals, journalPrefs, paperType);
       var ranked;
       try {
         ranked = await aiJson(selectedModel, currentKey, p2.system, p2.user);
@@ -2073,7 +2133,7 @@ function App() {
     setAbstRes({ status: 'loading' });
 
     try {
-      var pa = promptAbstract(abstract);
+      var pa = promptAbstract(abstract, paperType);
       var resultA;
       try {
         resultA = await aiJson(selectedModel, currentKey, pa.system, pa.user);
@@ -2082,6 +2142,7 @@ function App() {
         return;
       }
       resultA.original = abstract;
+      resultA._fw = ABSTRACT_FRAMEWORKS[paperType] || ABSTRACT_FRAMEWORKS['article'];
       setAbstRes({ status: 'done', data: resultA });
     } catch(wrapErr) {
       setAbstRes({ status: 'error', error: wrapErr.message });
@@ -2102,7 +2163,7 @@ function App() {
     setCRunning(true);
     setConcRes({ status: 'loading' });
     try {
-      var pc = promptConclusion(conclusion);
+      var pc = promptConclusion(conclusion, paperType);
       var resultC;
       try {
         resultC = await aiJson(selectedModel, currentKey, pc.system, pc.user);
@@ -2110,6 +2171,7 @@ function App() {
         setConcRes({ status: 'error', error: aiErr.message });
         return;
       }
+      resultC._fw = CONCLUSION_FRAMEWORKS[paperType] || CONCLUSION_FRAMEWORKS['article'];
       setConcRes({ status: 'done', data: resultC });
     } catch(wrapErr) {
       setConcRes({ status: 'error', error: wrapErr.message });
@@ -2131,7 +2193,7 @@ function App() {
     setChRunning(true);
     setChapterRes({ status: 'loading' });
     try {
-      var pc = promptChapter(chapterType, chapterText);
+      var pc = promptChapter(chapterType, chapterText, paperType);
       var result;
       try {
         result = await aiJson(selectedModel, currentKey, pc.system, pc.user);
@@ -2152,7 +2214,7 @@ function App() {
     setRqRunning(true);
     setRqResult({ status: 'loading' });
     try {
-      var pr = promptResearchQ(rqText, studyType);
+      var pr = promptResearchQ(rqText, studyType, paperType);
       var result;
       try {
         result = await aiJson(selectedModel, currentKey, pr.system, pr.user);
@@ -2173,7 +2235,7 @@ function App() {
     setContribRun(true);
     setContribRes({ status: 'loading' });
     try {
-      var pc = promptContribution(abstract);
+      var pc = promptContribution(abstract, paperType);
       var result;
       try {
         result = await aiJson(selectedModel, currentKey, pc.system, pc.user);
@@ -2203,7 +2265,7 @@ function App() {
           .catch(function(e) { return { keyword: kw, count: null }; });
       }));
       setKwResult({ status: 'loading', msg: 'Analysing keywords with AI…' });
-      var pk = promptKeywords(abstract, counts);
+      var pk = promptKeywords(abstract, counts, paperType);
       var result;
       try {
         result = await aiJson(selectedModel, currentKey, pk.system, pk.user);
@@ -2345,6 +2407,21 @@ function App() {
         </div>
       )}
 
+      {/* ── Paper type bar ── */}
+      <div className="paper-type-bar">
+        <span className="paper-type-lbl">Paper type:</span>
+        {PAPER_TYPES.map(function(pt) {
+          return (
+            <button
+              key={pt.key}
+              className={'pt-btn' + (paperType === pt.key ? ' active' : '')}
+              onClick={function() { setPaperType(pt.key); }}
+              type="button"
+            >{pt.label}</button>
+          );
+        })}
+      </div>
+
       {/* ── Mode tabs ── */}
       <div className="mode-tabs" role="tablist">
         {[
@@ -2391,7 +2468,12 @@ function App() {
       )}
 
       {/* ── Chapter Review mode ── */}
-      {mode === 'chapter' && (
+      {mode === 'chapter' && NO_CHAPTER_TYPES.indexOf(paperType) !== -1 && (
+        <div className="warn-box" style={{ marginBottom:'1rem' }}>
+          Chapter review is designed for full research articles. For <strong>{paperType.replace('-', ' ')}</strong>, the <strong>Abstract Feedback</strong> or <strong>Contribution Check</strong> tools are more applicable.
+        </div>
+      )}
+      {mode === 'chapter' && NO_CHAPTER_TYPES.indexOf(paperType) === -1 && (
         <div>
           <div className="sub-tabs" role="tablist">
             {[
@@ -2489,26 +2571,8 @@ function App() {
 
           {mode === 'journal' && (
             <>
-              {/* Manuscript type */}
-              <div className="filter-row" style={{ marginTop:'.9rem' }}>
-                <span style={{ fontSize:'.8rem', color:'var(--muted)', marginRight:'.2rem' }}>Type:</span>
-                {[
-                  { key:'research article', lbl:'Research Article' },
-                  { key:'review',           lbl:'Review'           },
-                  { key:'short communication', lbl:'Short Comm.'   },
-                  { key:'perspective',      lbl:'Perspective'      },
-                ].map(function(opt) {
-                  return (
-                    <button key={opt.key}
-                      className={'filter-btn' + (journalPrefs.manuscriptType === opt.key ? ' active' : '')}
-                      onClick={function() { setJPrefs(function(p) { return Object.assign({}, p, { manuscriptType: opt.key }); }); }}
-                      type="button"
-                    >{opt.lbl}</button>
-                  );
-                })}
-              </div>
               {/* Access filter */}
-              <div className="filter-row">
+              <div className="filter-row" style={{ marginTop:'.9rem' }}>
                 <span style={{ fontSize:'.8rem', color:'var(--muted)', marginRight:'.2rem' }}>Access:</span>
                 {[
                   { key:'any',          lbl:'Any'          },
