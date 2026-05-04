@@ -918,14 +918,26 @@ async function aiJson(modelId, apiKey, system, user) {
 // Searches Semantic Scholar and returns papers sorted by citation count.
 async function fetchPapers(query, broad) {
   var q = broad ? query.split(/\s+/).slice(0, 4).join(' ') : query;
-  var url = S2_BASE + '/paper/search?query=' + encodeURIComponent(q) + '&fields=title,citationCount,year,venue&limit=100';
-  var res = await fetch(url);
-  if (!res.ok) throw new Error('Semantic Scholar ' + res.status);
-  var data = await res.json();
-  return (data.data || [])
-    .filter(function(p) { return p.title && p.citationCount != null; })
-    .sort(function(a, b) { return (b.citationCount || 0) - (a.citationCount || 0); })
-    .slice(0, 20);
+  var url = S2_BASE + '/paper/search?query=' + encodeURIComponent(q) + '&fields=title,citationCount,year,venue&limit=50';
+  var controller = new AbortController();
+  var timer = setTimeout(function() { controller.abort(); }, 14000);
+  try {
+    var res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) {
+      var hint = res.status === 429 ? ' (rate-limited — wait a moment and retry)' : '';
+      throw new Error('Semantic Scholar ' + res.status + hint);
+    }
+    var data = await res.json();
+    return (data.data || [])
+      .filter(function(p) { return p.title && p.citationCount != null; })
+      .sort(function(a, b) { return (b.citationCount || 0) - (a.citationCount || 0); })
+      .slice(0, 20);
+  } catch(e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw new Error('Semantic Scholar timed out (14 s)');
+    throw e;
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -1157,11 +1169,14 @@ function prompt3(abstract, field, corpus, aiStructure, decomp, rel5papers, paper
    ───────────────────────────────────────────────────────────── */
 
 async function fetchJournals(query) {
+  // No select= — avoids field-name validation errors as OpenAlex schema evolves.
+  // All fields (is_oa, summary_stats, apc_usd, apc_prices, cited_by_count, host_organization_name)
+  // are present in the default sources response.
   const url = 'https://api.openalex.org/sources?search=' + encodeURIComponent(query) +
-    '&filter=type:journal&per-page=20&select=id,display_name,publisher,is_oa,summary_stats,apc_usd,apc_prices,cited_by_count&mailto=support@f2yapps.com';
+    '&filter=type:journal&per-page=20&mailto=support@f2yapps.com';
   const res = await fetch(url);
   if (!res.ok) {
-    const body = await res.text().catch(function(e) { return ''; });
+    const body = await res.text().catch(function() { return ''; });
     throw new Error('OpenAlex ' + res.status + (body ? ' — ' + body.slice(0, 200) : ''));
   }
   const data = await res.json();
@@ -1184,7 +1199,7 @@ function promptJournal2(abstract, field, methodology, journalData, prefs, paperT
     const citedness = stats['2yr_mean_citedness'] != null ? stats['2yr_mean_citedness'] : null;
     const ifStr = citedness !== null ? citedness.toFixed(2) : 'N/A';
     const apc = j.apc_usd ? '$' + j.apc_usd : (j.apc_prices && j.apc_prices.length > 0 ? '$' + j.apc_prices[0].price : 'APC unknown');
-    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF~' + ifStr + ' | APC:' + apc + ' | ' + (j.publisher || 'unknown publisher');
+    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF~' + ifStr + ' | APC:' + apc + ' | ' + (j.host_organization_name || j.publisher || 'unknown publisher');
   }).join('\n');
 
   const hIdx = parseInt(prefs.hindex, 10) || 0;
@@ -2285,58 +2300,69 @@ function App() {
         return;
       }
 
-      /* — Step 2: Literature Search + JS Pre-computation — */
+      /* — Step 2: Literature Search + JS Pre-computation (non-fatal) — */
       setStep(2, { status: 'loading' });
-      var papers;
-      var corpus;
+      var papers = [];
+      var corpus = mineCorpus([]);
+      var s2Ok = false;
       try {
-        papers = await fetchPapers(field.search_query);
-        if (papers.length === 0) {
+        var fetched = await fetchPapers(field.search_query);
+        if (fetched.length === 0) {
           setStep(2, { status: 'loading', msg: 'No results — retrying with broader query…' });
-          await new Promise(function(r) { setTimeout(r, 1800); });
-          papers = await fetchPapers(field.search_query, true);
+          await new Promise(function(r) { setTimeout(r, 1500); });
+          fetched = await fetchPapers(field.search_query, true);
         }
-        if (papers.length === 0) {
-          setStep(2, { status: 'error', error: 'No papers found. Try rephrasing your abstract or check your connection.' });
-          return;
-        }
-        // Pre-compute real corpus statistics in JavaScript — no AI involved.
-        corpus = mineCorpus(papers);
-        setStep(2, { status: 'done', data: papers, corpus: corpus });
-      } catch (fetchErr) {
-        try {
-          setStep(2, { status: 'loading', msg: 'Retrying search…' });
-          await new Promise(function(r) { setTimeout(r, 1800); });
-          papers = await fetchPapers(field.search_query, true);
+        if (fetched.length > 0) {
+          papers = fetched;
           corpus = mineCorpus(papers);
+          s2Ok = true;
           setStep(2, { status: 'done', data: papers, corpus: corpus });
-        } catch (fetchErr2) {
-          setStep(2, { status: 'error', error: 'Literature search failed: ' + fetchErr2.message });
-          return;
+        } else {
+          setStep(2, { status: 'warn', error: 'No papers found for this query. Titles will be generated from abstract only.' });
         }
+      } catch (fetchErr) {
+        var s2msg = fetchErr.message || '';
+        var s2hint = s2msg.includes('429') ? ' (Semantic Scholar rate-limited)'
+          : s2msg.includes('timeout') ? ' (Semantic Scholar timed out)'
+          : ' (Semantic Scholar temporarily unavailable)';
+        setStep(2, { status: 'warn', error: 'Literature search skipped' + s2hint + '. Titles will be generated from abstract only — accuracy may be reduced.' });
       }
 
-      /* — Steps 3 + 4: Relevance/Structure (AI) + Decomposition (AI) — run in parallel — */
-      setStep(3, { status: 'loading' });
+      /* — Steps 3 + 4 — */
+      /* Step 3 (corpus/relevance) only runs when papers were retrieved. */
+      /* Step 4 (abstract decomposition) always runs — it only needs the abstract. */
       setStep(4, { status: 'loading' });
-      var relevanceResult;
+      var relevanceResult = { relevant_5: [], dominant_structure: '' };
       var decomp;
-      try {
-        var pRel = promptRelevance(abstract, papers, corpus);
-        var pDec = promptDecomp(abstract);
-        // Both calls are independent — run together to save time
-        var parallel = await Promise.all([
-          aiJson(selectedModel, currentKey, pRel.system, pRel.user),
-          aiJson(selectedModel, currentKey, pDec.system, pDec.user),
-        ]);
-        relevanceResult = parallel[0];
-        decomp = parallel[1];
-        setStep(3, { status: 'done', data: corpus, relevance: relevanceResult, papers: papers });
-        setStep(4, { status: 'done', data: decomp });
-      } catch (analysisErr) {
-        setStep(3, { status: 'error', error: analysisErr.message });
-        setStep(4, { status: 'error', error: analysisErr.message });
-        return;
+
+      if (s2Ok && papers.length > 0) {
+        setStep(3, { status: 'loading' });
+        try {
+          var pRel = promptRelevance(abstract, papers, corpus);
+          var pDec = promptDecomp(abstract);
+          var parallel = await Promise.all([
+            aiJson(selectedModel, currentKey, pRel.system, pRel.user),
+            aiJson(selectedModel, currentKey, pDec.system, pDec.user),
+          ]);
+          relevanceResult = parallel[0];
+          decomp = parallel[1];
+          setStep(3, { status: 'done', data: corpus, relevance: relevanceResult, papers: papers });
+          setStep(4, { status: 'done', data: decomp });
+        } catch (analysisErr) {
+          setStep(3, { status: 'error', error: analysisErr.message });
+          setStep(4, { status: 'error', error: analysisErr.message });
+          return;
+        }
+      } else {
+        // No papers — run decomp alone
+        try {
+          var pDec2 = promptDecomp(abstract);
+          decomp = await aiJson(selectedModel, currentKey, pDec2.system, pDec2.user);
+          setStep(4, { status: 'done', data: decomp });
+        } catch (decompErr) {
+          setStep(4, { status: 'error', error: decompErr.message });
+          return;
+        }
       }
 
       /* — Steps 5 + 6: Titles + Winner — */
@@ -3151,11 +3177,12 @@ function App() {
       )}
 
       {mode === 'title' && s[2] && (
-        <StepCard num={2} title="Literature Search" status={s[2].status}>
+        <StepCard num={2} title="Literature Search" status={s[2].status === 'warn' ? 'done' : s[2].status}>
           {s[2].status === 'loading' && (
             <Dots text={s[2].msg || 'Searching Semantic Scholar for top cited papers…'} />
           )}
           {s[2].status === 'error' && <div className="error-box">{s[2].error}</div>}
+          {s[2].status === 'warn'  && <div className="warn-box">{s[2].error}</div>}
           {s[2].status === 'done'  && (
             <LiteratureDisplay papers={s[2].data} relevantSet={relevantSet} />
           )}
