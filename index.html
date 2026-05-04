@@ -637,6 +637,71 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
 .pt-btn:hover:not(.active) { border-color: var(--ink); color: var(--ink); }
 .pt-btn.active { border-color: var(--accent); color: var(--accent); background: var(--hi); font-weight: 600; }
 
+/* ── Full paper upload zone ── */
+.upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--r);
+  padding: 1.25rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  background: var(--card);
+  margin-bottom: .9rem;
+}
+.upload-zone:hover, .upload-zone.drag-over { border-color: var(--accent); background: var(--hi); }
+.upload-zone-text { font-size: .85rem; color: var(--muted); font-weight: 500; }
+.upload-zone-hint { font-size: .7rem; color: var(--muted); margin-top: .25rem; font-style: italic; }
+
+/* ── Full paper report ── */
+.fp-summary-bar { display: grid; gap: .45rem; margin-bottom: 1.4rem; }
+.fp-section-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: .75rem;
+  padding: .6rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--card);
+}
+.fp-section-name { font-weight: 500; font-size: .88rem; }
+.fp-section-fw { font-family: var(--mono); font-size: .63rem; color: var(--muted); margin-left: .35rem; }
+.fp-wc { font-family: var(--mono); font-size: .68rem; color: var(--muted); white-space: nowrap; }
+.fp-score-pill {
+  font-family: var(--mono);
+  font-size: .78rem;
+  font-weight: 600;
+  padding: .18rem .6rem;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+.fp-score-hi  { background: #e8f5e9; color: #2d7a3a; border: 1px solid #c3e6cb; }
+.fp-score-mid { background: #fff3e0; color: #b06000; border: 1px solid #ffe0b2; }
+.fp-score-lo  { background: #fff0f0; color: #c0392b; border: 1px solid #f5c6c6; }
+.fp-pending   { font-family: var(--mono); font-size: .68rem; color: var(--muted); font-style: italic; }
+.fp-section-block { margin-bottom: 1.5rem; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+.fp-section-head {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .7rem 1rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.fp-section-body { padding: 1.1rem; background: var(--card); }
+.fp-overall-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: .75rem 1rem;
+  background: var(--hi);
+  border: 1px solid rgba(196,84,26,.2);
+  border-radius: var(--r);
+  margin-bottom: 1.1rem;
+}
+.fp-overall-lbl { font-family: var(--mono); font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.fp-overall-num { font-family: var(--mono); font-size: 1.1rem; font-weight: 600; color: var(--accent); }
+
 /* Responsive */
 @media (max-width:600px) {
   .header h1 { font-size: 2.2rem; }
@@ -1328,6 +1393,22 @@ function promptKeywords(abstract, keywordData, paperType) {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   FULL PAPER — SEGMENTATION PROMPT
+   ───────────────────────────────────────────────────────────── */
+
+function promptSegment(fullText, paperType) {
+  var chapterKeys = CHAPTER_SETS[paperType] || CHAPTER_SETS['article'];
+  var chapters = chapterKeys.map(function(k) {
+    return (CHAPTER_FRAMEWORKS[k] || {}).label || k;
+  }).join(', ');
+  var keyList = chapterKeys.join(', ');
+  return {
+    system: 'You are an expert at parsing academic papers. Detect section headings and extract each section\'s text verbatim. Return only valid JSON, no markdown.',
+    user: 'Parse this ' + paperType + ' paper and extract each section.\n\nPAPER TYPE: ' + paperType + '\nEXPECTED SECTIONS: ' + chapters + '\n\nFULL PAPER:\n"""\n' + fullText.slice(0, 28000) + '\n"""\n\nDetect headings in any format (numbered "1.", ALL CAPS, Title Case, ## markdown, bold, etc.). Extract each section\'s text verbatim — include everything from the heading until the next heading. If an expected section is absent, omit it. Do not combine sections.\n\nReturn JSON exactly:\n{\n  "sections": [\n    {\n      "key": "<one of: ' + keyList + '>",\n      "heading": "<exact heading text as found in paper>",\n      "text": "<full section text verbatim, excluding the heading line itself>"\n    }\n  ],\n  "notes": "<brief note if sections are missing or structure is unusual, or null>"\n}',
+  };
+}
+
+/* ─────────────────────────────────────────────────────────────
    SMALL UI ATOMS
    ───────────────────────────────────────────────────────────── */
 
@@ -1909,6 +1990,124 @@ function KeywordsResult({ data }) {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   FULL PAPER REPORT COMPONENT
+   ───────────────────────────────────────────────────────────── */
+
+function FullPaperReport({ fpResult, paperType }) {
+  var sections = fpResult.sections || [];
+  var results  = fpResult.results  || {};
+  var isDone   = fpResult.status === 'done';
+
+  function sectionScore(key) {
+    var r = results[key];
+    if (!r || r.error || !(r.data)) return null;
+    var fw = CHAPTER_FRAMEWORKS[key] || {};
+    var dimKeys = Object.keys(fw.dims || {});
+    var sc = r.data.scores || {};
+    return dimKeys.reduce(function(acc, k) { return acc + (sc[k] || 0); }, 0);
+  }
+
+  function scorePill(score, max) {
+    if (score === null) return null;
+    var pct = max > 0 ? score / max : 0;
+    var cls = pct >= 0.8 ? 'fp-score-hi' : pct >= 0.6 ? 'fp-score-mid' : 'fp-score-lo';
+    return React.createElement('span', { className: 'fp-score-pill ' + cls }, score + '/' + max);
+  }
+
+  // Compute overall average for the done state
+  var overallPct = null;
+  if (isDone && sections.length > 0) {
+    var totalPct = 0;
+    var counted = 0;
+    sections.forEach(function(sec) {
+      var fw = CHAPTER_FRAMEWORKS[sec.key] || {};
+      var score = sectionScore(sec.key);
+      if (score !== null && fw.max) {
+        totalPct += score / fw.max;
+        counted++;
+      }
+    });
+    if (counted > 0) overallPct = Math.round((totalPct / counted) * 100);
+  }
+
+  return (
+    <>
+      {fpResult.notes && (
+        <div className="warn-box" style={{ marginBottom: '1rem' }}>{fpResult.notes}</div>
+      )}
+
+      {/* Overall score row */}
+      {overallPct !== null && (
+        <div className="fp-overall-row">
+          <span className="fp-overall-lbl">Overall paper score</span>
+          <span className="fp-overall-num">{overallPct}%</span>
+        </div>
+      )}
+
+      {/* Section summary bar */}
+      <div className="slabel" style={{ marginBottom: '.5rem' }}>
+        {sections.length} section{sections.length !== 1 ? 's' : ''} detected
+      </div>
+      <div className="fp-summary-bar">
+        {sections.map(function(sec) {
+          var fw = CHAPTER_FRAMEWORKS[sec.key] || {};
+          var r = results[sec.key];
+          var score = sectionScore(sec.key);
+          var wc = sec.text ? sec.text.trim().split(/\s+/).filter(Boolean).length : 0;
+          return (
+            <div key={sec.key} className="fp-section-row">
+              <div>
+                <span className="fp-section-name">{fw.label || sec.heading}</span>
+                <span className="fp-section-fw">({fw.name || sec.key})</span>
+              </div>
+              <span className="fp-wc">{wc} words</span>
+              {!r
+                ? <span className="fp-pending">evaluating…</span>
+                : r.error
+                  ? <span className="fp-score-pill fp-score-lo">error</span>
+                  : scorePill(score, fw.max || 100)
+              }
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Full feedback per section */}
+      {sections.map(function(sec) {
+        var fw = CHAPTER_FRAMEWORKS[sec.key] || {};
+        var r = results[sec.key];
+        if (!r) return null;
+        var score = sectionScore(sec.key);
+        var pct = (fw.max && score !== null) ? Math.round(score / fw.max * 100) : null;
+        var pillCls = pct === null ? '' : pct >= 80 ? 'fp-score-hi' : pct >= 60 ? 'fp-score-mid' : 'fp-score-lo';
+        return (
+          <div key={sec.key} className="fp-section-block">
+            <div className="fp-section-head">
+              <span className="step-badge">{fw.name || sec.key}</span>
+              <span style={{ fontWeight: 500, fontSize: '.93rem', flex: 1 }}>
+                {fw.label || sec.heading}
+              </span>
+              {pct !== null && (
+                <span className={'fp-score-pill ' + pillCls}>{pct}%</span>
+              )}
+              {r.error && (
+                <span className="fp-score-pill fp-score-lo">Failed</span>
+              )}
+            </div>
+            <div className="fp-section-body">
+              {r.error
+                ? <div className="error-box">{r.error}</div>
+                : <ChapterResult data={r.data} chapterType={sec.key} />
+              }
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
    MAIN APP
    ───────────────────────────────────────────────────────────── */
 
@@ -1955,6 +2154,11 @@ function App() {
   const [keywordsText, setKeywords]     = useState('');
   const [kwResult, setKwResult]         = useState(null);
   const [kwRunning, setKwRunning]       = useState(false);
+  // Full Paper Review
+  const [fullPaperText, setFPText]      = useState('');
+  const [fullPaperResult, setFPResult]  = useState(null);
+  const [fullPaperRunning, setFPRunning]= useState(false);
+  const [fpDragOver, setFpDragOver]     = useState(false);
 
   const settingsRef = useRef(null);
   const endRef      = useRef(null);
@@ -2340,6 +2544,92 @@ function App() {
     }
   }
 
+  function handleFPFile(file) {
+    if (!file) return;
+    var name = file.name || '';
+    if (!name.endsWith('.txt') && !name.endsWith('.md')) {
+      alert('Only .txt or .md files are supported. For PDF or DOCX, open the file, select all (Ctrl+A), copy, and paste into the text area below.');
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(e) { setFPText(e.target.result || ''); };
+    reader.onerror = function() { alert('Could not read file.'); };
+    reader.readAsText(file);
+  }
+
+  async function runFullPaper() {
+    if (!currentKey) { openSettings(); return; }
+    if (!fullPaperText.trim()) return;
+    setFPRunning(true);
+    setFPResult({ status: 'segmenting', sections: [], results: {} });
+
+    try {
+      // Step 1: Ask AI to detect and extract sections
+      var ps = promptSegment(fullPaperText, paperType);
+      var segResult;
+      try {
+        segResult = await aiJson(selectedModel, currentKey, ps.system, ps.user);
+      } catch(segErr) {
+        setFPResult({ status: 'error', error: 'Section detection failed: ' + segErr.message });
+        return;
+      }
+
+      // Validate keys against expected chapter set
+      var validKeys = CHAPTER_SETS[paperType] || CHAPTER_SETS['article'];
+      var validKeySet = {};
+      validKeys.forEach(function(k) { validKeySet[k] = true; });
+
+      var sections = (segResult.sections || []).filter(function(sec) {
+        return sec.key && validKeySet[sec.key] && sec.text && sec.text.trim().length > 30;
+      });
+
+      if (sections.length === 0) {
+        setFPResult({
+          status: 'error',
+          error: 'No recognizable sections found. Make sure your paper has clear section headings (e.g. "Introduction", "Methods", "Discussion"). For papers without explicit headings, paste each section individually using the Chapter Review tab.'
+        });
+        return;
+      }
+
+      setFPResult({ status: 'running', sections: sections, results: {}, notes: segResult.notes || null });
+
+      // Step 2: Evaluate all sections in parallel — update UI as each one completes
+      var promises = sections.map(function(sec) {
+        var pc = promptChapter(sec.key, sec.text, paperType);
+        return aiJson(selectedModel, currentKey, pc.system, pc.user)
+          .then(function(res) {
+            setFPResult(function(prev) {
+              var nr = {};
+              Object.keys(prev.results || {}).forEach(function(k) { nr[k] = prev.results[k]; });
+              nr[sec.key] = { data: res };
+              return { status: prev.status, sections: prev.sections, results: nr, notes: prev.notes };
+            });
+            return { key: sec.key, data: res };
+          })
+          .catch(function(err) {
+            setFPResult(function(prev) {
+              var nr = {};
+              Object.keys(prev.results || {}).forEach(function(k) { nr[k] = prev.results[k]; });
+              nr[sec.key] = { error: err.message };
+              return { status: prev.status, sections: prev.sections, results: nr, notes: prev.notes };
+            });
+            return { key: sec.key, error: err.message };
+          });
+      });
+
+      await Promise.all(promises);
+
+      setFPResult(function(prev) {
+        return { status: 'done', sections: prev.sections, results: prev.results, notes: prev.notes };
+      });
+
+    } catch(e) {
+      setFPResult({ status: 'error', error: e.message });
+    } finally {
+      setFPRunning(false);
+    }
+  }
+
   function reset() {
     setSteps({});
     setJSteps(null);
@@ -2349,11 +2639,13 @@ function App() {
     setRqResult(null);
     setContribRes(null);
     setKwResult(null);
+    setFPResult(null);
     setAbstract('');
     setConclusion('');
     setChapterText('');
     setRqText('');
     setKeywords('');
+    setFPText('');
     setRunning(false);
     setJRunning(false);
     setARunning(false);
@@ -2362,6 +2654,7 @@ function App() {
     setRqRunning(false);
     setContribRun(false);
     setKwRunning(false);
+    setFPRunning(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -2497,6 +2790,7 @@ function App() {
           { key: 'research-q',   label: 'Research Question'   },
           { key: 'contribution', label: 'Contribution Check'  },
           { key: 'keywords',     label: 'Keywords Optimizer'  },
+          { key: 'full-paper',   label: 'Full Paper Review'   },
         ].map(function(m) {
           return (
             <button
@@ -2562,6 +2856,63 @@ function App() {
           <div className="word-count">{chapterText.trim().split(/\s+/).filter(Boolean).length} words</div>
           <button className="btn-primary" onClick={runChapter} disabled={!chapterText.trim() || chapterRunning} aria-busy={chapterRunning}>
             {chapterRunning ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Evaluating…</> : 'Evaluate Chapter'}
+          </button>
+        </div>
+      )}
+
+      {/* ── Full Paper Review mode ── */}
+      {mode === 'full-paper' && (
+        <div>
+          {/* Drop zone */}
+          <div
+            className={'upload-zone' + (fpDragOver ? ' drag-over' : '')}
+            onClick={function() { var el = document.getElementById('fp-file-input'); if (el) el.click(); }}
+            onDragOver={function(e) { e.preventDefault(); setFpDragOver(true); }}
+            onDragLeave={function() { setFpDragOver(false); }}
+            onDrop={function(e) { e.preventDefault(); setFpDragOver(false); handleFPFile(e.dataTransfer.files[0]); }}
+          >
+            <input
+              id="fp-file-input"
+              type="file"
+              accept=".txt,.md"
+              style={{ display: 'none' }}
+              onChange={function(e) { handleFPFile(e.target.files[0]); e.target.value = ''; }}
+            />
+            <div className="upload-zone-text">Drop a .txt file here, or click to browse</div>
+            <div className="upload-zone-hint">Supports .txt and .md · For PDF / DOCX: open, select all, copy, then paste below</div>
+          </div>
+
+          <label htmlFor="fp-text" style={{ display: 'block', fontWeight: 600, marginBottom: '.45rem' }}>
+            Full paper text
+          </label>
+          <textarea
+            id="fp-text"
+            value={fullPaperText}
+            onChange={function(e) { setFPText(e.target.value); }}
+            placeholder={'Paste your complete ' + paperType.replace('-', ' ') + ' here — the tool will auto-detect all sections and evaluate each one…'}
+            disabled={fullPaperRunning}
+            style={{ height: '280px' }}
+          />
+          <div className={'word-count' + (fullPaperText.trim().split(/\s+/).filter(Boolean).length > 24000 ? ' warn' : '')}>
+            {fullPaperText.trim().split(/\s+/).filter(Boolean).length} words
+            {fullPaperText.trim().split(/\s+/).filter(Boolean).length > 24000
+              ? ' — very long; only the first ~28 000 characters will be used for section detection'
+              : ''}
+          </div>
+          <button
+            className="btn-primary"
+            onClick={runFullPaper}
+            disabled={!fullPaperText.trim() || fullPaperRunning}
+            aria-busy={fullPaperRunning}
+          >
+            {fullPaperRunning
+              ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span>
+                  {fullPaperResult && fullPaperResult.status === 'segmenting'
+                    ? ' Detecting sections…'
+                    : ' Evaluating all sections…'}
+                </>
+              : 'Analyse Full Paper'
+            }
           </button>
         </div>
       )}
@@ -2882,6 +3233,42 @@ function App() {
         <StepCard num={1} title="Keywords Report" status="done"><KeywordsResult data={kwResult.data} /></StepCard>
       )}
 
+      {/* ── Full Paper Review results ── */}
+      {mode === 'full-paper' && fullPaperResult !== null && <hr className="div" />}
+
+      {mode === 'full-paper' && fullPaperResult !== null && fullPaperResult.status === 'segmenting' && (
+        <StepCard num={1} title="Detecting Sections" status="loading">
+          <Dots text="AI is identifying section headings and extracting text…" />
+        </StepCard>
+      )}
+
+      {mode === 'full-paper' && fullPaperResult !== null && fullPaperResult.status === 'running' && (
+        <StepCard num={1} title={'Evaluating ' + (fullPaperResult.sections || []).length + ' sections in parallel…'} status="loading">
+          <Dots text="Results will appear below as each section completes" />
+          {(fullPaperResult.sections || []).length > 0 && (
+            <div style={{ marginTop: '1.25rem' }}>
+              <FullPaperReport fpResult={fullPaperResult} paperType={paperType} />
+            </div>
+          )}
+        </StepCard>
+      )}
+
+      {mode === 'full-paper' && fullPaperResult !== null && fullPaperResult.status === 'error' && (
+        <StepCard num={1} title="Full Paper Analysis" status="error">
+          <div className="error-box">{fullPaperResult.error}</div>
+        </StepCard>
+      )}
+
+      {mode === 'full-paper' && fullPaperResult !== null && fullPaperResult.status === 'done' && (
+        <StepCard
+          num={1}
+          title={'Full Paper Report — ' + (fullPaperResult.sections || []).length + ' sections evaluated'}
+          status="done"
+        >
+          <FullPaperReport fpResult={fullPaperResult} paperType={paperType} />
+        </StepCard>
+      )}
+
       <div ref={endRef} />
 
       {/* ── Footer ── */}
@@ -2894,7 +3281,7 @@ function App() {
             {(MODELS.find(function(m) { return m.id === selectedModel; }) || {}).label || selectedModel}
           </span>
         </p>
-        {(Object.keys(s).length > 0 || journalSteps !== null || abstractResult !== null || conclusionResult !== null || chapterResult !== null || rqResult !== null || contribResult !== null || kwResult !== null) && (
+        {(Object.keys(s).length > 0 || journalSteps !== null || abstractResult !== null || conclusionResult !== null || chapterResult !== null || rqResult !== null || contribResult !== null || kwResult !== null || fullPaperResult !== null) && (
           <button className="btn-ghost" onClick={reset}>↺ Start over</button>
         )}
       </footer>
