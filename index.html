@@ -1404,6 +1404,9 @@ function promptKeywords(abstract, keywordData, paperType) {
    FULL PAPER — SEGMENTATION PROMPT
    ───────────────────────────────────────────────────────────── */
 
+// Ask the AI for headings only — NOT section content.
+// Section texts are sliced from the original paper in JS using heading positions.
+// This keeps the AI response small (just heading strings) and avoids output token truncation.
 function promptSegment(fullText, paperType) {
   var chapterKeys = CHAPTER_SETS[paperType] || CHAPTER_SETS['article'];
   var chapters = chapterKeys.map(function(k) {
@@ -1411,9 +1414,46 @@ function promptSegment(fullText, paperType) {
   }).join(', ');
   var keyList = chapterKeys.join(', ');
   return {
-    system: 'You are an expert at parsing academic papers. Detect section headings and extract each section\'s text verbatim. Return only valid JSON, no markdown.',
-    user: 'Parse this ' + paperType + ' paper and extract each section.\n\nPAPER TYPE: ' + paperType + '\nEXPECTED SECTIONS: ' + chapters + '\n\nFULL PAPER:\n"""\n' + fullText.slice(0, 28000) + '\n"""\n\nDetect headings in any format (numbered "1.", ALL CAPS, Title Case, ## markdown, bold, etc.). Extract each section\'s text verbatim — include everything from the heading until the next heading. If an expected section is absent, omit it. Do not combine sections.\n\nReturn JSON exactly:\n{\n  "sections": [\n    {\n      "key": "<one of: ' + keyList + '>",\n      "heading": "<exact heading text as found in paper>",\n      "text": "<full section text verbatim, excluding the heading line itself>"\n    }\n  ],\n  "notes": "<brief note if sections are missing or structure is unusual, or null>"\n}',
+    system: 'You are an expert at parsing academic papers. Return section headings only — do NOT return any section body text. Return only valid JSON, no markdown.',
+    user: 'Identify the section headings in this ' + paperType + ' paper.\n\nPAPER TYPE: ' + paperType + '\nEXPECTED SECTIONS: ' + chapters + '\n\nFULL PAPER:\n"""\n' + fullText.slice(0, 28000) + '\n"""\n\nFor each section found, return the exact heading string exactly as it appears in the paper (including any prefix like "1.", "##", "ABSTRACT", "Methods" etc.). Map it to the correct key. Omit sections not present.\n\nReturn headings ONLY — no body text at all.\n\nReturn JSON exactly:\n{\n  "sections": [\n    {\n      "key": "<one of: ' + keyList + '>",\n      "heading": "<exact heading string as it appears in the paper>"\n    }\n  ],\n  "notes": "<note on missing sections or unusual structure, or null>"\n}',
   };
+}
+
+// Extract section texts in JS by finding each heading in the original text and slicing between headings.
+function extractSectionTexts(fullText, headings) {
+  var positioned = [];
+  headings.forEach(function(h) {
+    if (!h.heading) return;
+    var idx = fullText.indexOf(h.heading);
+    if (idx === -1) {
+      var lower = fullText.toLowerCase();
+      idx = lower.indexOf(h.heading.toLowerCase());
+    }
+    if (idx !== -1) {
+      positioned.push({ key: h.key, heading: h.heading, pos: idx });
+    }
+  });
+
+  positioned.sort(function(a, b) { return a.pos - b.pos; });
+
+  // Remove duplicate positions
+  var seen = {};
+  positioned = positioned.filter(function(h) {
+    if (seen[h.pos]) return false;
+    seen[h.pos] = true;
+    return true;
+  });
+
+  var sections = [];
+  for (var i = 0; i < positioned.length; i++) {
+    var contentStart = positioned[i].pos + positioned[i].heading.length;
+    var contentEnd = i + 1 < positioned.length ? positioned[i + 1].pos : fullText.length;
+    var text = fullText.slice(contentStart, contentEnd).trim();
+    if (text.length > 30) {
+      sections.push({ key: positioned[i].key, heading: positioned[i].heading, text: text });
+    }
+  }
+  return sections;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -2612,19 +2652,21 @@ function App() {
         return;
       }
 
-      // Validate keys against expected chapter set
+      // Validate keys, then extract section texts from the original paper using JS
       var validKeys = CHAPTER_SETS[paperType] || CHAPTER_SETS['article'];
       var validKeySet = {};
       validKeys.forEach(function(k) { validKeySet[k] = true; });
 
-      var sections = (segResult.sections || []).filter(function(sec) {
-        return sec.key && validKeySet[sec.key] && sec.text && sec.text.trim().length > 30;
+      var validHeadings = (segResult.sections || []).filter(function(sec) {
+        return sec.key && validKeySet[sec.key] && sec.heading;
       });
+
+      var sections = extractSectionTexts(fullPaperText, validHeadings);
 
       if (sections.length === 0) {
         setFPResult({
           status: 'error',
-          error: 'No recognizable sections found. Make sure your paper has clear section headings (e.g. "Introduction", "Methods", "Discussion"). For papers without explicit headings, paste each section individually using the Chapter Review tab.'
+          error: 'Could not locate section headings in the text. Make sure your paper has clear section headings (e.g. "Introduction", "Methods", "Discussion"). For papers without explicit headings, paste each section individually using the Chapter Review tab.'
         });
         return;
       }
