@@ -10,6 +10,8 @@
 <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <style>
 :root {
   --bg:       #f5f2eb;
@@ -719,6 +721,12 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
 </head>
 <body>
 <div id="root"></div>
+<script>
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+</script>
 <script type="text/babel" data-presets="react,env">
 /* =============================================================
    TitleSmart — Academic Title Recommender
@@ -2544,17 +2552,47 @@ function App() {
     }
   }
 
-  function handleFPFile(file) {
+  async function handleFPFile(file) {
     if (!file) return;
-    var name = file.name || '';
-    if (!name.endsWith('.txt') && !name.endsWith('.md')) {
-      alert('Only .txt or .md files are supported. For PDF or DOCX, open the file, select all (Ctrl+A), copy, and paste into the text area below.');
-      return;
+    var name = (file.name || '').toLowerCase();
+    try {
+      if (name.endsWith('.txt') || name.endsWith('.md')) {
+        var reader = new FileReader();
+        reader.onload = function(e) { setFPText(e.target.result || ''); };
+        reader.onerror = function() { alert('Could not read file.'); };
+        reader.readAsText(file);
+        return;
+      }
+      if (name.endsWith('.pdf')) {
+        if (typeof pdfjsLib === 'undefined') {
+          alert('PDF library not loaded yet — please wait a moment and try again.');
+          return;
+        }
+        var buf = await file.arrayBuffer();
+        var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+        var text = '';
+        for (var i = 1; i <= pdf.numPages; i++) {
+          var page = await pdf.getPage(i);
+          var content = await page.getTextContent();
+          text += content.items.map(function(s) { return s.str; }).join(' ') + '\n';
+        }
+        setFPText(text.trim());
+        return;
+      }
+      if (name.endsWith('.docx')) {
+        if (typeof mammoth === 'undefined') {
+          alert('DOCX library not loaded yet — please wait a moment and try again.');
+          return;
+        }
+        var buf2 = await file.arrayBuffer();
+        var result = await mammoth.extractRawText({ arrayBuffer: buf2 });
+        setFPText(result.value || '');
+        return;
+      }
+      alert('Unsupported file type. Supported formats: .txt, .md, .pdf, .docx');
+    } catch(e) {
+      alert('Could not read file: ' + e.message);
     }
-    var reader = new FileReader();
-    reader.onload = function(e) { setFPText(e.target.result || ''); };
-    reader.onerror = function() { alert('Could not read file.'); };
-    reader.readAsText(file);
   }
 
   async function runFullPaper() {
@@ -2874,12 +2912,12 @@ function App() {
             <input
               id="fp-file-input"
               type="file"
-              accept=".txt,.md"
+              accept=".txt,.md,.pdf,.docx"
               style={{ display: 'none' }}
               onChange={function(e) { handleFPFile(e.target.files[0]); e.target.value = ''; }}
             />
-            <div className="upload-zone-text">Drop a .txt file here, or click to browse</div>
-            <div className="upload-zone-hint">Supports .txt and .md · For PDF / DOCX: open, select all, copy, then paste below</div>
+            <div className="upload-zone-text">Drop a file here, or click to browse</div>
+            <div className="upload-zone-hint">Supports .txt · .md · .pdf · .docx</div>
           </div>
 
           <label htmlFor="fp-text" style={{ display: 'block', fontWeight: 600, marginBottom: '.45rem' }}>
@@ -2889,7 +2927,7 @@ function App() {
             id="fp-text"
             value={fullPaperText}
             onChange={function(e) { setFPText(e.target.value); }}
-            placeholder={'Paste your complete ' + paperType.replace('-', ' ') + ' here — the tool will auto-detect all sections and evaluate each one…'}
+            placeholder={'Paste your complete ' + paperType.replace('-', ' ') + ' here, or upload a file above — the tool will auto-detect all sections and evaluate each one…'}
             disabled={fullPaperRunning}
             style={{ height: '280px' }}
           />
