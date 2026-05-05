@@ -815,79 +815,19 @@ function modelProvider(modelId) {
    MULTI-PROVIDER AI CALLER
    ───────────────────────────────────────────────────────────── */
 
-// Routes a system+user prompt to the correct provider API.
-async function callAI(modelId, apiKey, system, user) {
-  const provider = modelProvider(modelId);
-
-  /* ── Anthropic / Claude ── */
-  if (provider === 'claude') {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: modelId,
-        max_tokens: 4096,
-        system: system,
-        messages: [{ role: 'user', content: user }],
-      }),
-    });
-    if (!res.ok) {
-      const b = await res.text().catch(function() { return ''; });
-      throw new Error('Anthropic ' + res.status + ': ' + b.slice(0, 300));
-    }
-    const d = await res.json();
-    return d.content[0].text;
-  }
-
-  /* ── Google / Gemini ── */
-  if (provider === 'gemini') {
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + modelId + ':generateContent?key=' + apiKey;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: system }] },
-        contents: [{ parts: [{ text: user }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
-      }),
-    });
-    if (!res.ok) {
-      const b = await res.text().catch(function() { return ''; });
-      throw new Error('Gemini ' + res.status + ': ' + b.slice(0, 300));
-    }
-    const d = await res.json();
-    return d.candidates[0].content.parts[0].text;
-  }
-
-  /* ── Groq / OpenAI — both use OpenAI-compatible format ── */
-  const baseUrl = provider === 'openai'
-    ? 'https://api.openai.com/v1/chat/completions'
-    : 'https://api.groq.com/openai/v1/chat/completions';
-  const res = await fetch(baseUrl, {
+// Calls the server-side /api/chat proxy (Groq Llama 3.3 70B, key stays on server).
+async function callAI(system, user) {
+  const res = await fetch('/api/chat', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + apiKey,
-    },
-    body: JSON.stringify({
-      model: modelId,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user',   content: user },
-      ],
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ system, user }),
   });
   if (!res.ok) {
-    const b = await res.text().catch(function() { return ''; });
-    throw new Error(PROVIDERS[provider].label + ' API ' + res.status + ': ' + b.slice(0, 300));
+    const d = await res.json().catch(function() { return {}; });
+    throw new Error(d.error || 'Server error ' + res.status);
   }
   const d = await res.json();
-  return d.choices[0].message.content;
+  return d.text;
 }
 
 // Parses JSON from an AI response — handles markdown code fences.
@@ -902,13 +842,13 @@ function parseJson(text) {
 }
 
 // AI call + JSON parse with one automatic retry on malformed JSON.
-async function aiJson(modelId, apiKey, system, user) {
-  const text = await callAI(modelId, apiKey, system, user);
+async function aiJson(system, user) {
+  const text = await callAI(system, user);
   try {
     return parseJson(text);
   } catch(parseErr) {
     const retry = await callAI(
-      modelId, apiKey, system,
+      system,
       user + '\n\nIMPORTANT: Return ONLY valid JSON. No markdown. No code fences. No extra text.'
     );
     return parseJson(retry);
@@ -1059,8 +999,8 @@ function mineCorpus(papers) {
 
 function prompt1(abstract) {
   return {
-    system: 'You are an academic field classifier. Return only valid JSON, no markdown.',
-    user: `Analyse this academic abstract.
+    system: 'You are an expert academic field classifier and literature search strategist. Return only valid JSON, no markdown.',
+    user: `Analyse this academic abstract with precision.
 
 ABSTRACT:
 """
@@ -1069,11 +1009,20 @@ ${abstract}
 
 Return JSON exactly:
 {
-  "discipline": "Main academic discipline",
-  "subfield": "Specific subfield",
+  "discipline": "Main academic discipline (e.g. Medicine, Computer Science, Environmental Science)",
+  "subfield": "Specific subfield (e.g. Oncology, Natural Language Processing, Wetland Ecology)",
   "keywords": ["kw1","kw2","kw3","kw4","kw5"],
-  "search_query": "4-8 word query for Semantic Scholar to find top cited papers in this exact subfield"
-}`,
+  "search_query": "4-8 word Semantic Scholar query targeting the CORE TOPIC and POPULATION/DOMAIN of this paper",
+  "search_query_method": "4-8 word Semantic Scholar query targeting the METHODOLOGY and APPLICATION used in this paper"
+}
+
+Critical rules for search queries:
+- Be highly specific — avoid generic words like 'study', 'analysis', 'research', 'impact', 'effect'
+- Use the exact terminology a researcher in this subfield would use
+- search_query: What was studied? (topic + population/setting/disease/material)
+- search_query_method: How was it studied? (method name + application domain)
+- Bad example: "machine learning healthcare analysis" → Too generic
+- Good example: "transformer models clinical note extraction" → Specific method + domain`,
   };
 }
 
@@ -1101,8 +1050,30 @@ function promptRelevance(abstract, papers, corpus) {
 // Prompt B: pure abstract analysis — no papers involved at all.
 function promptDecomp(abstract) {
   return {
-    system: 'You are an academic writing analyst. Decompose the abstract with precision. Return only valid JSON, no markdown.',
-    user: 'Decompose this abstract into its core research components.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nReturn JSON exactly:\n{\n  "core_contribution": "<the single most important finding or contribution — one sentence, no hedging>",\n  "methodology": "<the research design or method used>",\n  "population_domain": "<study population, geographic scope, or application domain>",\n  "key_variables": ["most important variable", "second", "third"],\n  "time_period": "<time period studied, or Not specified>"\n}',
+    system: 'You are a rigorous academic writing analyst. Decompose the abstract precisely. Be conservative — only extract what the abstract explicitly states. Return only valid JSON, no markdown.',
+    user: `Decompose this abstract into its core research components with precision.
+
+ABSTRACT:
+"""
+${abstract}
+"""
+
+Return JSON exactly:
+{
+  "core_contribution": "<The single most important finding or contribution — one sentence, no hedging, grounded only in what the abstract actually claims>",
+  "methodology": "<Exact research design or method — be specific (e.g. 'randomised controlled trial', 'convolutional neural network', 'ethnographic fieldwork', NOT just 'quantitative study')>",
+  "population_domain": "<Who or what was studied — be specific (e.g. 'adults aged 40-65 with Type 2 diabetes in urban Ethiopia', NOT just 'patients')>",
+  "key_variables": ["primary outcome variable", "main independent variable", "third most important variable"],
+  "time_period": "<Time period or temporal scope studied, or 'Not specified' if absent>",
+  "evidence_strength": "experimental|observational|theoretical|computational|review-based|mixed-methods",
+  "claim_scope": "narrow|moderate|broad",
+  "novelty_type": "first-study|methodological-innovation|extension-of-prior-work|replication|application-to-new-domain|review-synthesis"
+}
+
+Rules:
+- evidence_strength: 'experimental' = RCT/lab experiment; 'observational' = survey/cohort/case-study; 'theoretical' = model/framework with no empirical data; 'computational' = simulation/algorithm evaluation; 'review-based' = systematic review/meta-analysis; 'mixed-methods' = both qualitative and quantitative
+- claim_scope: 'narrow' = single site/condition/dataset with limited generalisability; 'moderate' = findings applicable to a defined population/domain; 'broad' = general theory or widely applicable finding
+- novelty_type: what kind of contribution does the abstract claim to make?`,
   };
 }
 
@@ -1158,9 +1129,119 @@ function prompt3(abstract, field, corpus, aiStructure, decomp, rel5papers, paper
   var tier2str = corpus.tier2.join(', ') || '(none found at this threshold)';
   var tier3str = corpus.tier3.join(', ') || '(none)';
 
+  // Calibrate A-score ceiling based on evidence strength and claim scope
+  var aCalibration = '';
+  var evStr = (decomp && decomp.evidence_strength) || '';
+  var claimScope = (decomp && decomp.claim_scope) || '';
+  if (evStr === 'theoretical') {
+    aCalibration = 'EVIDENCE NOTE: This is a theoretical paper with no empirical data. A-score ≤ 18 for any title that implies empirical findings. The title must signal theory/framework/model — not measured outcomes.';
+  } else if (evStr === 'observational' && claimScope === 'narrow') {
+    aCalibration = 'EVIDENCE NOTE: This is an observational study with narrow scope (' + (decomp.population_domain || 'limited sample') + '). A-score ≤ 15 for any title that implies causal or broadly generalisable findings. Words like "determines", "causes", "proves" are overstatements.';
+  } else if (evStr === 'experimental' && claimScope === 'moderate') {
+    aCalibration = 'EVIDENCE NOTE: Experimental with moderate scope. Causal language is acceptable but generalisation must be qualified. A-score penalty if the title implies universal applicability.';
+  } else if (evStr === 'review-based') {
+    aCalibration = 'EVIDENCE NOTE: This is a review/meta-analysis. The title must signal a synthesis role (e.g. "systematic review", "meta-analysis", "evidence synthesis") — do not generate a title that reads like an original research paper.';
+  } else {
+    aCalibration = 'EVIDENCE NOTE: Evidence type is ' + (evStr || 'unspecified') + ', claim scope is ' + (claimScope || 'unspecified') + '. Calibrate A-score accordingly — never overstate what the abstract can support.';
+  }
+
   return {
-    system: 'You are an expert academic title specialist. The abstract is your single source of truth — never claim more than it supports (Achievable). The vocabulary pool contains words with VERIFIED frequency counts from real papers in this field. Use them. Return only valid JSON, no markdown.',
-    user: 'Generate 3 title recommendations grounded in the corpus data below.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nFIELD: ' + field.discipline + ' — ' + field.subfield + '\nPAPER TYPE: ' + (paperType || 'article') + '\n\nCORPUS STATISTICS (computed from ' + corpus.n + ' top-cited papers — these are exact counts, not estimates):\n- Average title length: ' + corpus.avgLen + ' words (range ' + corpus.lenRange + ')\n- Colon usage: ' + corpus.colonCount + '/' + corpus.n + ' titles (' + corpus.colonPct + '%)\n- Dominant structure: ' + aiStructure + '\n\nVOCABULARY POOL (word = number of distinct paper titles it appears in):\n- Tier 1 — 5+ titles: ' + tier1str + '\n- Tier 2 — 3-4 titles: ' + tier2str + '\n- Tier 3 — 2 titles: ' + tier3str + '\n\nMOST RELEVANT CITED PAPERS (semantically matched to this abstract):\n  ' + relList + '\n\nABSTRACT DECOMPOSITION:\n- Core contribution: ' + decomp.core_contribution + '\n- Methodology: ' + decomp.methodology + '\n- Population/domain: ' + decomp.population_domain + '\n- Key variables: ' + (decomp.key_variables || []).join(', ') + '\n- Time period: ' + decomp.time_period + '\n\n' + RUBRIC + '\n\nGenerate:\n1. "SMART Maximizer" — highest total SMART score possible\n2. "Concise SMART" — ≤12 words, strong SMART\n3. "Citation-Matched" — follows the dominant structural template exactly\n\nRules:\n- MUST use words from Tier 1 and Tier 2 — these are real field vocabulary\n- A-score: abstract evidence only, zero overstatement\n- fix_notes: populate only when score < 15; quote the abstract directly\n- T = null if the paper is theoretical or timeless\n- winner = highest total (tie → prefer SMART Maximizer)\n\nReturn JSON exactly:\n{\n  "titles": [\n    {\n      "type": "SMART Maximizer",\n      "title": "",\n      "scores": {"S":0,"M":0,"A":0,"R":0,"T":0},\n      "total": 0,\n      "fix_notes": {"S":"","M":"","A":"","R":"","T":""},\n      "justification": ""\n    },\n    {\n      "type": "Concise SMART",\n      "title": "",\n      "scores": {"S":0,"M":0,"A":0,"R":0,"T":0},\n      "total": 0,\n      "fix_notes": {"S":"","M":"","A":"","R":"","T":""},\n      "justification": ""\n    },\n    {\n      "type": "Citation-Matched",\n      "title": "",\n      "scores": {"S":0,"M":0,"A":0,"R":0,"T":0},\n      "total": 0,\n      "fix_notes": {"S":"","M":"","A":"","R":"","T":""},\n      "justification": ""\n    }\n  ],\n  "winner": {\n    "type": "",\n    "title": "",\n    "justification": ""\n  }\n}',
+    system: 'You are a world-class academic title specialist. The abstract is your ONLY source of truth — never claim anything the abstract does not explicitly state. Field vocabulary from the corpus is MANDATORY — not optional. Return only valid JSON, no markdown.',
+    user: `Generate 4 distinct, high-quality title recommendations grounded strictly in the data below.
+
+ABSTRACT:
+"""
+${abstract}
+"""
+
+FIELD: ${field.discipline} — ${field.subfield}
+PAPER TYPE: ${paperType || 'article'}
+NOVELTY TYPE: ${(decomp && decomp.novelty_type) || 'unspecified'}
+
+CORPUS STATISTICS (exact counts from ${corpus.n} top-cited papers in this field):
+- Average title length: ${corpus.avgLen} words (range ${corpus.lenRange})
+- Colon usage: ${corpus.colonCount}/${corpus.n} titles (${corpus.colonPct}%)
+- Dominant structure template: ${aiStructure || 'not identified'}
+
+VOCABULARY POOL — words verified from real top-cited papers in this field:
+- Tier 1 (≥5 papers): ${tier1str}
+- Tier 2 (3–4 papers): ${tier2str}
+- Tier 3 (2 papers): ${tier3str}
+
+⚠ MANDATORY VOCABULARY RULE: Every title MUST include at least 2 words from Tier 1 or Tier 2.
+If the pool has fewer than 4 words total, use the closest field-standard terminology available.
+
+MOST RELEVANT CITED PAPERS (semantically matched to this abstract):
+  ${relList}
+
+ABSTRACT DECOMPOSITION:
+- Core contribution: ${decomp ? decomp.core_contribution : 'N/A'}
+- Methodology: ${decomp ? decomp.methodology : 'N/A'}
+- Population/domain: ${decomp ? decomp.population_domain : 'N/A'}
+- Key variables: ${decomp && decomp.key_variables ? decomp.key_variables.join(', ') : 'N/A'}
+- Time period: ${decomp ? decomp.time_period : 'N/A'}
+- Evidence strength: ${(decomp && decomp.evidence_strength) || 'unspecified'}
+- Claim scope: ${(decomp && decomp.claim_scope) || 'unspecified'}
+
+${aCalibration}
+
+${RUBRIC}
+
+Generate EXACTLY these 4 title types:
+1. "SMART Maximizer" — optimise all 5 SMART dimensions simultaneously; must include methodology signal
+2. "Concise SMART" — ≤12 words total, strong SMART score; cut every word that does not add information
+3. "Citation-Matched" — follows the dominant structural template EXACTLY; must fit the template slot-for-slot
+4. "Population-Foregrounded" — opens with the specific population/domain/setting; useful when the population is the distinctive feature
+
+Strict rules:
+- A-score: honour the evidence calibration note above — this is the most commonly overscored dimension
+- fix_notes: when score < 15, quote the abstract line that constrains the score; leave empty string if score ≥ 15
+- T = null only if the paper is purely theoretical/timeless with zero temporal content
+- winner = highest total SMART score; on tie, prefer SMART Maximizer
+- Do NOT generate generic placeholders — every title must be a complete, publishable academic title
+
+Return JSON exactly:
+{
+  "titles": [
+    {
+      "type": "SMART Maximizer",
+      "title": "",
+      "scores": {"S":0,"M":0,"A":0,"R":0,"T":0},
+      "total": 0,
+      "fix_notes": {"S":"","M":"","A":"","R":"","T":""},
+      "justification": "One sentence explaining why this title scores as it does"
+    },
+    {
+      "type": "Concise SMART",
+      "title": "",
+      "scores": {"S":0,"M":0,"A":0,"R":0,"T":0},
+      "total": 0,
+      "fix_notes": {"S":"","M":"","A":"","R":"","T":""},
+      "justification": ""
+    },
+    {
+      "type": "Citation-Matched",
+      "title": "",
+      "scores": {"S":0,"M":0,"A":0,"R":0,"T":0},
+      "total": 0,
+      "fix_notes": {"S":"","M":"","A":"","R":"","T":""},
+      "justification": ""
+    },
+    {
+      "type": "Population-Foregrounded",
+      "title": "",
+      "scores": {"S":0,"M":0,"A":0,"R":0,"T":0},
+      "total": 0,
+      "fix_notes": {"S":"","M":"","A":"","R":"","T":""},
+      "justification": ""
+    }
+  ],
+  "winner": {
+    "type": "",
+    "title": "",
+    "justification": "2-3 sentences: why this title wins, which vocabulary words it uses, and what makes it discoverable"
+  }
+}`,
   };
 }
 
@@ -1169,11 +1250,8 @@ function prompt3(abstract, field, corpus, aiStructure, decomp, rel5papers, paper
    ───────────────────────────────────────────────────────────── */
 
 async function fetchJournals(query) {
-  // No select= — avoids field-name validation errors as OpenAlex schema evolves.
-  // All fields (is_oa, summary_stats, apc_usd, apc_prices, cited_by_count, host_organization_name)
-  // are present in the default sources response.
   const url = 'https://api.openalex.org/sources?search=' + encodeURIComponent(query) +
-    '&filter=type:journal&per-page=20&mailto=support@f2yapps.com';
+    '&filter=type:journal&per-page=25&mailto=support@f2yapps.com';
   const res = await fetch(url);
   if (!res.ok) {
     const body = await res.text().catch(function() { return ''; });
@@ -1182,7 +1260,7 @@ async function fetchJournals(query) {
   const data = await res.json();
   var results = (data.results || []).filter(function(j) { return j.display_name; });
   results.sort(function(a, b) { return (b.cited_by_count || 0) - (a.cited_by_count || 0); });
-  return results.slice(0, 15);
+  return results.slice(0, 25);
 }
 
 function promptJournal1(abstract) {
@@ -1192,9 +1270,18 @@ function promptJournal1(abstract) {
   };
 }
 
+// IF tier definitions — shared between prompt and UI
+var IF_TIERS = [
+  { key: 'any',      label: 'Any IF',                 range: null,         min: null, max: null  },
+  { key: 'high',     label: 'High Impact  (IF ≥ 10)', range: 'IF ≥ 10',   min: 10,   max: null  },
+  { key: 'strong',   label: 'Strong  (IF 5 – 9.9)',   range: 'IF 5–9.9',  min: 5,    max: 9.9   },
+  { key: 'good',     label: 'Good  (IF 2 – 4.9)',     range: 'IF 2–4.9',  min: 2,    max: 4.9   },
+  { key: 'standard', label: 'Standard  (IF < 2)',      range: 'IF < 2',    min: null, max: 1.99  },
+];
+
 function promptJournal2(abstract, field, methodology, journalData, prefs, paperType) {
   const rows = journalData.map(function(j, i) {
-    const oa = j.is_oa === true ? 'open-access' : 'subscription';
+    const oa = j.is_oa === true ? 'open-access' : (j.is_oa === false ? 'subscription' : 'hybrid');
     const stats = j.summary_stats || {};
     const citedness = stats['2yr_mean_citedness'] != null ? stats['2yr_mean_citedness'] : null;
     const ifStr = citedness !== null ? citedness.toFixed(2) : 'N/A';
@@ -1202,27 +1289,65 @@ function promptJournal2(abstract, field, methodology, journalData, prefs, paperT
     return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF~' + ifStr + ' | APC:' + apc + ' | ' + (j.host_organization_name || j.publisher || 'unknown publisher');
   }).join('\n');
 
-  const hIdx = parseInt(prefs.hindex, 10) || 0;
+  const tierDef = IF_TIERS.find(function(t) { return t.key === (prefs.ifTier || 'any'); }) || IF_TIERS[0];
   var tierRules;
-  if (hIdx === 0) {
-    tierRules = 'Author h-index unknown — use topic/method fit as primary tier signal.';
-  } else if (hIdx <= 5) {
-    tierRules = 'Author h-index ' + hIdx + ' (early career). safe = IF < 2, good = IF 2–4, stretch = IF > 4. Avoid desk-rejection by not over-reaching.';
-  } else if (hIdx <= 15) {
-    tierRules = 'Author h-index ' + hIdx + ' (mid career). safe = IF < 4, good = IF 4–8, stretch = IF > 8.';
-  } else if (hIdx <= 30) {
-    tierRules = 'Author h-index ' + hIdx + ' (established). safe = IF < 8, good = IF 8–15, stretch = IF > 15.';
+  if (tierDef.key === 'any') {
+    tierRules = 'No IF filter — rank purely by topic fit, methodology alignment, and scope. Label each recommendation with its IF tier (High ≥10 / Strong 5–9.9 / Good 2–4.9 / Standard <2) so the author understands the prestige landscape.';
   } else {
-    tierRules = 'Author h-index ' + hIdx + ' (senior/highly cited). All IF ranges are reachable — tier by topic fit, not prestige.';
+    tierRules = 'MANDATORY IF FILTER: The author targets ' + tierDef.label + ' (' + tierDef.range + '). Only recommend journals whose IF falls within ' + tierDef.range + '. If a journal\'s IF is N/A in the list, include it ONLY if it is an established, well-known journal strongly associated with this tier. Exclude any journal outside this range — do not make exceptions.';
   }
 
   const access = prefs.access && prefs.access !== 'any' ? prefs.access : 'no preference';
   const msType = paperType ? paperType.replace('-', ' ') : 'article';
-  const oaNote = prefs.oaMandate ? 'FUNDER REQUIRES OPEN ACCESS — only recommend open-access or hybrid journals.' : '';
+  const oaNote = prefs.oaMandate ? '\n⚠ FUNDER MANDATE: Only recommend open-access or hybrid journals — subscription-only journals are ineligible.' : '';
 
   return {
-    system: 'You are an expert academic publication consultant. Return only valid JSON, no markdown.',
-    user: 'Recommend the 5 best journals for this paper.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nFIELD: ' + field + '\nMETHODOLOGY: ' + methodology + '\nMANUSCRIPT TYPE: ' + msType + '\nACCESS PREFERENCE: ' + access + '\n' + oaNote + '\n\nTIER ASSIGNMENT RULES (use these exactly):\n' + tierRules + '\n\nAVAILABLE JOURNALS (IF = 2-year mean citedness from OpenAlex, APC = article processing charge):\n' + rows + '\n\nScore topic_fit, method_fit, scope_fit each 0-100. Consider manuscript type — e.g. review articles suit review-oriented journals, short communications suit letters journals.\n\nReturn JSON exactly:\n{\n  "journals": [\n    {\n      "rank": 1,\n      "name": "",\n      "publisher": "",\n      "access_type": "open-access|subscription|hybrid",\n      "impact_factor": 0.0,\n      "apc_usd": 0,\n      "tier": "safe|good|stretch",\n      "topic_fit": 0,\n      "method_fit": 0,\n      "scope_fit": 0,\n      "why": "2-3 sentence rationale mentioning why tier was assigned"\n    }\n  ]\n}',
+    system: 'You are a senior academic publication strategist with deep knowledge of journal scope, editorial expectations, and desk-rejection patterns. Be precise and realistic. Return only valid JSON, no markdown.',
+    user: `Recommend the 5 best-fit journals for this paper. Be strategic, not just prestigious.
+
+ABSTRACT:
+"""
+${abstract}
+"""
+
+FIELD: ${field}
+METHODOLOGY: ${methodology}
+MANUSCRIPT TYPE: ${msType}
+ACCESS PREFERENCE: ${access}${oaNote}
+
+IF TIER FILTER:
+${tierRules}
+
+AVAILABLE JOURNALS (IF = 2-year mean citedness from OpenAlex):
+${rows}
+
+For each recommended journal:
+- topic_fit (0–100): does the journal regularly publish papers on this exact topic?
+- method_fit (0–100): does the journal welcome this methodology (e.g. qualitative, RCT, computational)?
+- scope_fit (0–100): does the paper's claim scope (narrow/moderate/broad) match the journal's typical article breadth?
+- rejection_risk: realistic assessment of desk-rejection risk — consider IF vs. paper scope, methodology fit, and whether the journal has published similar work
+- why: 2–3 sentences explaining the recommendation; mention at least one specific reason this journal is a good fit for THIS paper specifically (not generic praise)
+
+Return JSON exactly:
+{
+  "journals": [
+    {
+      "rank": 1,
+      "name": "",
+      "publisher": "",
+      "access_type": "open-access|subscription|hybrid",
+      "impact_factor": 0.0,
+      "if_tier": "High|Strong|Good|Standard|Unknown",
+      "apc_usd": 0,
+      "topic_fit": 0,
+      "method_fit": 0,
+      "scope_fit": 0,
+      "rejection_risk": "low|medium|high",
+      "rejection_risk_note": "One sentence on the main desk-rejection risk, or 'Low risk if abstract matches scope'",
+      "why": ""
+    }
+  ]
+}`,
   };
 }
 
@@ -1407,11 +1532,72 @@ function promptContribution(abstract, paperType) {
 
 function promptKeywords(abstract, keywordData, paperType) {
   var rows = keywordData.map(function(k) {
-    return '- "' + k.keyword + '" → ' + (k.count !== null ? k.count.toLocaleString() + ' papers indexed' : 'search failed');
+    var countStr = k.count !== null ? k.count.toLocaleString() + ' papers indexed on Semantic Scholar' : 'search failed';
+    return '- "' + k.keyword + '" → ' + countStr;
   }).join('\n');
   return {
-    system: 'You are an expert in academic information retrieval and keyword optimisation. Evaluate the author\'s keywords and suggest improvements. Do NOT rewrite or generate any paper content. Return only valid JSON, no markdown.',
-    user: 'Evaluate these keywords for the abstract below.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nPAPER TYPE: ' + (paperType || 'article') + '\n\nKEYWORD PAPER COUNTS (Semantic Scholar):\n' + rows + '\n\nFor each keyword rate specificity: broad (>5000 papers), moderate (500-5000), specific (<500). Judge relevance to this abstract: high/medium/low. Recommend: keep/refine/replace.\n\nAlso suggest 2-3 alternative keywords derived from the abstract that would improve discoverability.\n\nReturn JSON exactly:\n{\n  "overall": "1-2 sentence summary of keyword quality",\n  "keywords": [\n    {\n      "keyword": "",\n      "specificity": "broad|moderate|specific",\n      "relevance": "high|medium|low",\n      "action": "keep|refine|replace",\n      "note": "Why and how to improve"\n    }\n  ],\n  "suggested": [\n    { "keyword": "", "rationale": "Why this term improves discoverability" }\n  ]\n}',
+    system: 'You are a senior academic information retrieval specialist with expertise in database indexing, search discoverability, and controlled vocabulary across disciplines. Evaluate rigorously. Return only valid JSON, no markdown.',
+    user: `Evaluate these keywords for the abstract below and give the author expert, actionable guidance.
+
+ABSTRACT:
+"""
+${abstract}
+"""
+
+PAPER TYPE: ${paperType || 'article'}
+
+KEYWORD PAPER COUNTS (from Semantic Scholar):
+${rows}
+
+Perform a thorough expert evaluation — not a surface-level review.
+
+For each keyword:
+1. specificity:
+   - "too-broad": >50,000 papers — the keyword will bury this paper in noise
+   - "broad": 5,000–50,000 papers — high competition, low differentiation
+   - "moderate": 500–5,000 papers — good balance
+   - "specific": <500 papers — precise, but check if researchers actually search this term
+   - "too-narrow": <50 papers — may miss readers who use broader parent terms
+
+2. relevance: does this keyword accurately describe a CORE concept in this abstract? (high/medium/low)
+
+3. overlap_issue: does this keyword substantially overlap with another keyword in the list (near-synonyms, parent-child concepts, redundant coverage)? If yes, name the overlapping keyword.
+
+4. discoverability_role: "topic-anchor" (defines the main subject), "method-signal" (signals how the study was done), "population-marker" (identifies who/what was studied), "outcome-indicator" (signals what was measured), "noise" (adds no retrieval value)
+
+5. action: "keep" / "refine" (adjust phrasing) / "replace" (this slot should use a different term entirely) / "remove" (redundant or irrelevant)
+
+6. note: specific, actionable guidance — if replacing, suggest the exact replacement term and why
+
+Also:
+- Detect if the keyword set is missing any of the 4 key retrieval layers: topic, method, population, outcome. Flag missing layers.
+- Suggest 3–5 additional keywords that would improve discoverability, with rationale. Prefer compound terms (multi-word phrases) over single generic words — they are more precise and more likely to match actual search queries.
+- Include one Boolean search string combining your top 3–4 recommended keywords (use AND/OR) that a researcher would realistically type to find this paper.
+
+Return JSON exactly:
+{
+  "overall": "2-sentence expert summary of the keyword set's strengths and weaknesses",
+  "missing_layers": ["method", "population"],
+  "keywords": [
+    {
+      "keyword": "",
+      "specificity": "too-broad|broad|moderate|specific|too-narrow",
+      "relevance": "high|medium|low",
+      "discoverability_role": "topic-anchor|method-signal|population-marker|outcome-indicator|noise",
+      "overlap_issue": "none|<name of overlapping keyword>",
+      "action": "keep|refine|replace|remove",
+      "note": "Specific actionable guidance — be direct"
+    }
+  ],
+  "suggested": [
+    {
+      "keyword": "",
+      "layer": "topic|method|population|outcome",
+      "rationale": "Why this term improves discoverability and what search behaviour it targets"
+    }
+  ],
+  "boolean_query": "Example: (\"term1\" OR \"term2\") AND \"term3\" AND \"term4\""
+}`,
   };
 }
 
@@ -1745,9 +1931,12 @@ function TitleCard({ item, isWinner }) {
    ───────────────────────────────────────────────────────────── */
 
 function JournalCard({ item, rank }) {
-  const tierClass = item.tier === 'safe' ? 'tier-safe' : item.tier === 'stretch' ? 'tier-stretch' : 'tier-good';
+  const ifTier = item.if_tier || '';
+  const ifTierClass = ifTier === 'High' ? 'tier-stretch' : ifTier === 'Strong' ? 'tier-good' : ifTier === 'Good' ? 'tier-safe' : 'tier-safe';
   const accessClass = item.access_type === 'open-access' ? 'badge-oa' : item.access_type === 'hybrid' ? 'badge-hybrid' : 'badge-sub';
   const accessLabel = item.access_type === 'open-access' ? 'Open Access' : item.access_type === 'hybrid' ? 'Hybrid' : 'Subscription';
+  const riskColor = item.rejection_risk === 'low' ? '#2d7a3a' : item.rejection_risk === 'high' ? '#c0392b' : '#b06000';
+  const riskBg   = item.rejection_risk === 'low' ? '#e8f5e9' : item.rejection_risk === 'high' ? '#fff0f0' : '#fff8e1';
   const fits = [
     { lbl: 'Topic fit',  val: item.topic_fit  || 0 },
     { lbl: 'Method fit', val: item.method_fit || 0 },
@@ -1763,7 +1952,7 @@ function JournalCard({ item, rank }) {
         </div>
         <div className="journal-badges">
           <span className={'badge ' + accessClass}>{accessLabel}</span>
-          <span className={'badge ' + tierClass}>{item.tier}</span>
+          {ifTier && <span className={'badge ' + ifTierClass}>{ifTier} IF</span>}
         </div>
       </div>
       <div className="journal-body">
@@ -1781,8 +1970,8 @@ function JournalCard({ item, rank }) {
             <span className="jmeta-lbl">Avg Fit</span>
           </div>
           <div className="jmeta">
-            <span className="jmeta-val" style={{ textTransform:'capitalize' }}>{item.tier || '—'}</span>
-            <span className="jmeta-lbl">Tier</span>
+            <span className="jmeta-val" style={{ textTransform:'capitalize', color: riskColor }}>{item.rejection_risk || '—'}</span>
+            <span className="jmeta-lbl">Desk-Rejection Risk</span>
           </div>
         </div>
         {fits.map(function(f) {
@@ -1797,6 +1986,11 @@ function JournalCard({ item, rank }) {
             </div>
           );
         })}
+        {item.rejection_risk_note && (
+          <p style={{ fontSize:'.78rem', margin:'.55rem 0 .1rem', padding:'.4rem .65rem', borderRadius:'6px', background: riskBg, color: riskColor, fontStyle:'italic' }}>
+            ⚠ {item.rejection_risk_note}
+          </p>
+        )}
         {item.why && <p className="journal-why">{item.why}</p>}
       </div>
     </div>
@@ -2007,22 +2201,46 @@ function ContributionResult({ data }) {
 }
 
 function KeywordsResult({ data }) {
-  var specClass   = function(s) { return 'badge badge-' + (s || 'moderate'); };
-  var actionClass = function(a) { return 'badge badge-' + (a || 'refine'); };
+  var actionStyle = function(a) {
+    if (a === 'keep')    return { bg:'#e8f5e9', color:'#2d7a3a', border:'#c3e6cb', label:'✓ keep' };
+    if (a === 'remove')  return { bg:'#fff0f0', color:'#c0392b', border:'#f5c6c6', label:'✕ remove' };
+    if (a === 'replace') return { bg:'#fff3cd', color:'#856404', border:'#ffc107', label:'↔ replace' };
+    return                     { bg:'var(--hi)', color:'var(--accent)', border:'rgba(196,84,26,.25)', label:'↑ refine' };
+  };
+  var roleIcon = function(r) {
+    return r === 'topic-anchor' ? '🎯' : r === 'method-signal' ? '⚗' : r === 'population-marker' ? '👥' : r === 'outcome-indicator' ? '📊' : '⚠';
+  };
+  var layerColor = { method:'#1565c0', population:'#6a1b9a', outcome:'#e65100', topic:'#2d7a3a' };
   return (
     <>
       {data.overall && <p className="abst-verdict">{data.overall}</p>}
+
+      {(data.missing_layers || []).length > 0 && (
+        <div style={{ background:'#fff8e1', border:'1px solid #ffe082', borderRadius:'8px', padding:'.6rem .85rem', marginBottom:'.9rem', fontSize:'.8rem', color:'#5d4037' }}>
+          ⚠ Missing retrieval layers: {data.missing_layers.map(function(l) {
+            return <strong key={l} style={{ color: layerColor[l] || '#333', marginRight:'.35rem' }}>{l}</strong>;
+          })}
+          — add keywords covering these to improve discoverability.
+        </div>
+      )}
+
       <div className="slabel">Keyword Analysis</div>
       <div className="kw-list">
         {(data.keywords || []).map(function(k, i) {
+          var ast = actionStyle(k.action);
           return (
-            <div key={i} className="kw-card">
+            <div key={i} className="kw-card" style={{ borderLeft:'3px solid ' + ast.border }}>
               <div className="kw-card-head">
-                <span className="kw-name">{k.keyword}</span>
-                <div style={{ display:'flex', gap:'.35rem', flexWrap:'wrap' }}>
-                  {k.specificity && <span className={specClass(k.specificity)}>{k.specificity}</span>}
-                  {k.action && <span className={actionClass(k.action)}>{k.action}</span>}
-                  {k.relevance && <span className="badge" style={{ background:'var(--bg)', border:'1px solid var(--border)', color:'var(--muted)' }}>{k.relevance} relevance</span>}
+                <span className="kw-name">
+                  {k.discoverability_role && <span title={k.discoverability_role} style={{ marginRight:'.3rem' }}>{roleIcon(k.discoverability_role)}</span>}
+                  {k.keyword}
+                </span>
+                <div style={{ display:'flex', gap:'.35rem', flexWrap:'wrap', alignItems:'center' }}>
+                  {k.specificity && <span className="badge" style={{ background:'var(--bg)', border:'1px solid var(--border)', color:'var(--muted)', fontSize:'.68rem' }}>{k.specificity}</span>}
+                  {k.overlap_issue && k.overlap_issue !== 'none' && (
+                    <span className="badge" style={{ background:'#fff8e1', border:'1px solid #ffe082', color:'#856404', fontSize:'.68rem' }}>overlaps "{k.overlap_issue}"</span>
+                  )}
+                  <span style={{ fontSize:'.72rem', fontWeight:600, padding:'.18rem .5rem', borderRadius:'6px', background: ast.bg, color: ast.color, border:'1px solid ' + ast.border }}>{ast.label}</span>
                 </div>
               </div>
               <div className="kw-body">{k.note}</div>
@@ -2030,16 +2248,18 @@ function KeywordsResult({ data }) {
           );
         })}
       </div>
+
       {(data.suggested || []).length > 0 && (
         <>
-          <div className="slabel" style={{ marginTop:'.75rem' }}>Suggested Keywords</div>
+          <div className="slabel" style={{ marginTop:'.9rem' }}>Suggested Keywords</div>
           <div className="kw-list">
             {(data.suggested || []).map(function(s, i) {
+              var lc = layerColor[s.layer] || 'var(--accent)';
               return (
-                <div key={i} className="kw-card">
+                <div key={i} className="kw-card" style={{ borderLeft:'3px solid ' + lc }}>
                   <div className="kw-card-head">
-                    <span className="kw-name" style={{ color:'var(--accent)' }}>+ {s.keyword}</span>
-                    <span className="badge badge-specific">suggested</span>
+                    <span className="kw-name" style={{ color: lc }}>+ {s.keyword}</span>
+                    {s.layer && <span className="badge" style={{ background:'var(--bg)', border:'1px solid var(--border)', color: lc, fontSize:'.68rem' }}>{s.layer}</span>}
                   </div>
                   <div className="kw-body">{s.rationale}</div>
                 </div>
@@ -2047,6 +2267,13 @@ function KeywordsResult({ data }) {
             })}
           </div>
         </>
+      )}
+
+      {data.boolean_query && (
+        <div style={{ marginTop:'1rem', background:'#f4f4f4', borderRadius:'8px', padding:'.65rem .9rem' }}>
+          <div style={{ fontSize:'.72rem', fontWeight:700, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:'.35rem' }}>Recommended Boolean Search Query</div>
+          <code style={{ fontSize:'.8rem', color:'var(--ink)', wordBreak:'break-word' }}>{data.boolean_query}</code>
+        </div>
       )}
     </>
   );
@@ -2176,23 +2403,11 @@ function FullPaperReport({ fpResult, paperType }) {
 
 function App() {
   const [abstract, setAbstract]         = useState('');
-  const [selectedModel, setModel]       = useState(() => sessionStorage.getItem('ts_model') || DEFAULT_MODEL);
-  // Per-provider keys stored separately so switching model doesn't erase the other key
-  const [keys, setKeys]                 = useState(function() {
-    return {
-      groq:   sessionStorage.getItem('ts_key_groq')   || '',
-      claude: sessionStorage.getItem('ts_key_claude') || '',
-      openai: sessionStorage.getItem('ts_key_openai') || '',
-      gemini: sessionStorage.getItem('ts_key_gemini') || '',
-    };
-  });
-  const [settingsOpen, setSettings]     = useState(false);
-  const [keyGuideOpen, setKeyGuide]     = useState(false);
   const [running, setRunning]           = useState(false);
   const [steps, setSteps]               = useState({});
   const [mode, setMode]                 = useState('title');
   const [paperType, setPaperType]       = useState('article');
-  const [journalPrefs, setJPrefs]       = useState({ access: 'any', hindex: '', oaMandate: false });
+  const [journalPrefs, setJPrefs]       = useState({ access: 'any', ifTier: 'any', oaMandate: false });
   const [journalSteps, setJSteps]       = useState(null);
   const [abstractResult, setAbstRes]    = useState(null);
   const [journalRunning, setJRunning]   = useState(false);
@@ -2223,11 +2438,7 @@ function App() {
   const [fullPaperRunning, setFPRunning]= useState(false);
   const [fpDragOver, setFpDragOver]     = useState(false);
 
-  const settingsRef = useRef(null);
-  const endRef      = useRef(null);
-
-  const provider   = modelProvider(selectedModel);
-  const currentKey = keys[provider] || '';
+  const endRef = useRef(null);
 
   // Reset chapterType when paper type changes to a type with a different chapter set.
   useEffect(function() {
@@ -2237,27 +2448,6 @@ function App() {
       setChapterRes(null);
     }
   }, [paperType]);
-
-  // Persist model choice and all keys to sessionStorage.
-  useEffect(function() {
-    sessionStorage.setItem('ts_model', selectedModel);
-  }, [selectedModel]);
-
-  useEffect(function() {
-    Object.keys(keys).forEach(function(p) {
-      if (keys[p]) sessionStorage.setItem('ts_key_' + p, keys[p]);
-      else sessionStorage.removeItem('ts_key_' + p);
-    });
-  }, [keys]);
-
-  function setProviderKey(val) {
-    setKeys(function(prev) {
-      const next = {};
-      Object.keys(prev).forEach(function(k) { next[k] = prev[k]; });
-      next[provider] = val;
-      return next;
-    });
-  }
 
   // Scroll into view when new steps appear.
   useEffect(() => {
@@ -2276,14 +2466,6 @@ function App() {
 
   // Main pipeline.
   async function run() {
-    if (!currentKey) {
-      setSettings(true);
-      setTimeout(function() {
-        const el = settingsRef.current && settingsRef.current.querySelector('input[type="password"]');
-        if (el) el.focus();
-      }, 150);
-      return;
-    }
     setRunning(true);
     setSteps({});
 
@@ -2293,20 +2475,37 @@ function App() {
       let field;
       try {
         const p = prompt1(abstract);
-        field = await aiJson(selectedModel, currentKey, p.system, p.user);
+        field = await aiJson(p.system, p.user);
         setStep(1, { status: 'done', data: field });
       } catch (e) {
         setStep(1, { status: 'error', error: e.message });
         return;
       }
 
-      /* — Step 2: Literature Search + JS Pre-computation (non-fatal) — */
-      setStep(2, { status: 'loading' });
+      /* — Step 2: Literature Search — fetch topic + method queries in parallel for richer corpus — */
+      setStep(2, { status: 'loading', msg: 'Searching top-cited papers (topic + method queries in parallel)…' });
       var papers = [];
       var corpus = mineCorpus([]);
       var s2Ok = false;
       try {
-        var fetched = await fetchPapers(field.search_query);
+        var [fetched1, fetched2] = await Promise.all([
+          fetchPapers(field.search_query).catch(function() { return []; }),
+          field.search_query_method
+            ? fetchPapers(field.search_query_method).catch(function() { return []; })
+            : Promise.resolve([]),
+        ]);
+        // Merge + deduplicate by title, then take top 20 by citation count
+        var seenTitles = {};
+        var merged = [];
+        [fetched1, fetched2].forEach(function(batch) {
+          batch.forEach(function(p) {
+            var key = (p.title || '').toLowerCase().trim();
+            if (key && !seenTitles[key]) { seenTitles[key] = true; merged.push(p); }
+          });
+        });
+        merged.sort(function(a, b) { return (b.citationCount || 0) - (a.citationCount || 0); });
+        var fetched = merged.slice(0, 20);
+
         if (fetched.length === 0) {
           setStep(2, { status: 'loading', msg: 'No results — retrying with broader query…' });
           await new Promise(function(r) { setTimeout(r, 1500); });
@@ -2341,8 +2540,8 @@ function App() {
           var pRel = promptRelevance(abstract, papers, corpus);
           var pDec = promptDecomp(abstract);
           var parallel = await Promise.all([
-            aiJson(selectedModel, currentKey, pRel.system, pRel.user),
-            aiJson(selectedModel, currentKey, pDec.system, pDec.user),
+            aiJson(pRel.system, pRel.user),
+            aiJson(pDec.system, pDec.user),
           ]);
           relevanceResult = parallel[0];
           decomp = parallel[1];
@@ -2357,7 +2556,7 @@ function App() {
         // No papers — run decomp alone
         try {
           var pDec2 = promptDecomp(abstract);
-          decomp = await aiJson(selectedModel, currentKey, pDec2.system, pDec2.user);
+          decomp = await aiJson(pDec2.system, pDec2.user);
           setStep(4, { status: 'done', data: decomp });
         } catch (decompErr) {
           setStep(4, { status: 'error', error: decompErr.message });
@@ -2373,7 +2572,7 @@ function App() {
           .map(function(i) { return papers[i - 1]; })
           .filter(Boolean);
         var p5 = prompt3(abstract, field, corpus, relevanceResult.dominant_structure || '', decomp, rel5papers, paperType);
-        var result = await aiJson(selectedModel, currentKey, p5.system, p5.user);
+        var result = await aiJson(p5.system, p5.user);
         var winnerTitle = (result.winner && result.winner.title) || '';
         setStep(5, { status: 'done', data: result.titles || [], winnerTitle: winnerTitle });
         setStep(6, { status: 'done', data: result.winner });
@@ -2391,14 +2590,6 @@ function App() {
   }
 
   async function runJournals() {
-    if (!currentKey) {
-      setSettings(true);
-      setTimeout(function() {
-        var el = settingsRef.current && settingsRef.current.querySelector('input[type="password"]');
-        if (el) el.focus();
-      }, 150);
-      return;
-    }
     setJRunning(true);
     setJSteps({ status: 'loading', msg: 'Analysing abstract field…' });
 
@@ -2406,29 +2597,31 @@ function App() {
       var p1 = promptJournal1(abstract);
       var fieldInfo;
       try {
-        fieldInfo = await aiJson(selectedModel, currentKey, p1.system, p1.user);
+        fieldInfo = await aiJson(p1.system, p1.user);
       } catch(fe) {
         setJSteps({ status: 'error', error: 'Field analysis failed: ' + fe.message });
         return;
       }
 
-      setJSteps({ status: 'loading', msg: 'Searching journal databases…' });
-      var allJournals = [];
+      setJSteps({ status: 'loading', msg: 'Searching journal databases (all terms in parallel)…' });
       var terms = fieldInfo.search_terms || [fieldInfo.field || 'academic research'];
-      var lastFetchErr = null;
 
-      for (var ti = 0; ti < Math.min(terms.length, 2); ti++) {
-        try {
-          var batch = await fetchJournals(terms[ti]);
-          for (var bi = 0; bi < batch.length; bi++) {
-            var dup = false;
-            for (var ai = 0; ai < allJournals.length; ai++) {
-              if (allJournals[ai].id === batch[bi].id) { dup = true; break; }
-            }
-            if (!dup) allJournals.push(batch[bi]);
-          }
-        } catch(te) { lastFetchErr = te; }
-      }
+      // Fetch all search terms in parallel, then deduplicate by OpenAlex ID
+      var batches = await Promise.all(
+        terms.slice(0, 3).map(function(term) {
+          return fetchJournals(term).catch(function() { return []; });
+        })
+      );
+      var seenIds = {};
+      var allJournals = [];
+      batches.forEach(function(batch) {
+        batch.forEach(function(j) {
+          var id = j.id || j.display_name;
+          if (id && !seenIds[id]) { seenIds[id] = true; allJournals.push(j); }
+        });
+      });
+      // Sort by cited_by_count descending so AI sees best-known journals first
+      allJournals.sort(function(a, b) { return (b.cited_by_count || 0) - (a.cited_by_count || 0); });
 
       if (allJournals.length === 0) {
         try {
@@ -2443,7 +2636,7 @@ function App() {
       var p2 = promptJournal2(abstract, fieldInfo.field || '', fieldInfo.methodology || '', allJournals, journalPrefs, paperType);
       var ranked;
       try {
-        ranked = await aiJson(selectedModel, currentKey, p2.system, p2.user);
+        ranked = await aiJson(p2.system, p2.user);
       } catch(re) {
         setJSteps({ status: 'error', error: 'Journal ranking failed: ' + re.message });
         return;
@@ -2458,14 +2651,6 @@ function App() {
   }
 
   async function runAbstract() {
-    if (!currentKey) {
-      setSettings(true);
-      setTimeout(function() {
-        var el = settingsRef.current && settingsRef.current.querySelector('input[type="password"]');
-        if (el) el.focus();
-      }, 150);
-      return;
-    }
     setARunning(true);
     setAbstRes({ status: 'loading' });
 
@@ -2473,7 +2658,7 @@ function App() {
       var pa = promptAbstract(abstract, paperType);
       var resultA;
       try {
-        resultA = await aiJson(selectedModel, currentKey, pa.system, pa.user);
+        resultA = await aiJson(pa.system, pa.user);
       } catch(aiErr) {
         setAbstRes({ status: 'error', error: aiErr.message });
         return;
@@ -2489,21 +2674,13 @@ function App() {
   }
 
   async function runConclusion() {
-    if (!currentKey) {
-      setSettings(true);
-      setTimeout(function() {
-        var el = settingsRef.current && settingsRef.current.querySelector('input[type="password"]');
-        if (el) el.focus();
-      }, 150);
-      return;
-    }
     setCRunning(true);
     setConcRes({ status: 'loading' });
     try {
       var pc = promptConclusion(conclusion, paperType);
       var resultC;
       try {
-        resultC = await aiJson(selectedModel, currentKey, pc.system, pc.user);
+        resultC = await aiJson(pc.system, pc.user);
       } catch(aiErr) {
         setConcRes({ status: 'error', error: aiErr.message });
         return;
@@ -2517,23 +2694,17 @@ function App() {
     }
   }
 
-  function openSettings() {
-    setSettings(true);
-    setTimeout(function() {
-      var el = settingsRef.current && settingsRef.current.querySelector('input[type="password"]');
-      if (el) el.focus();
-    }, 150);
-  }
+
 
   async function runChapter() {
-    if (!currentKey) { openSettings(); return; }
+
     setChRunning(true);
     setChapterRes({ status: 'loading' });
     try {
       var pc = promptChapter(chapterType, chapterText, paperType);
       var result;
       try {
-        result = await aiJson(selectedModel, currentKey, pc.system, pc.user);
+        result = await aiJson(pc.system, pc.user);
       } catch(aiErr) {
         setChapterRes({ status: 'error', error: aiErr.message });
         return;
@@ -2547,14 +2718,14 @@ function App() {
   }
 
   async function runResearchQ() {
-    if (!currentKey) { openSettings(); return; }
+
     setRqRunning(true);
     setRqResult({ status: 'loading' });
     try {
       var pr = promptResearchQ(rqText, studyType, paperType);
       var result;
       try {
-        result = await aiJson(selectedModel, currentKey, pr.system, pr.user);
+        result = await aiJson(pr.system, pr.user);
       } catch(aiErr) {
         setRqResult({ status: 'error', error: aiErr.message });
         return;
@@ -2568,14 +2739,14 @@ function App() {
   }
 
   async function runContribution() {
-    if (!currentKey) { openSettings(); return; }
+
     setContribRun(true);
     setContribRes({ status: 'loading' });
     try {
       var pc = promptContribution(abstract, paperType);
       var result;
       try {
-        result = await aiJson(selectedModel, currentKey, pc.system, pc.user);
+        result = await aiJson(pc.system, pc.user);
       } catch(aiErr) {
         setContribRes({ status: 'error', error: aiErr.message });
         return;
@@ -2589,7 +2760,7 @@ function App() {
   }
 
   async function runKeywords() {
-    if (!currentKey) { openSettings(); return; }
+
     var kws = keywordsText.split(/[,\n]+/).map(function(k) { return k.trim(); }).filter(Boolean);
     if (kws.length === 0) return;
     setKwRunning(true);
@@ -2605,7 +2776,7 @@ function App() {
       var pk = promptKeywords(abstract, counts, paperType);
       var result;
       try {
-        result = await aiJson(selectedModel, currentKey, pk.system, pk.user);
+        result = await aiJson(pk.system, pk.user);
       } catch(aiErr) {
         setKwResult({ status: 'error', error: aiErr.message });
         return;
@@ -2662,7 +2833,7 @@ function App() {
   }
 
   async function runFullPaper() {
-    if (!currentKey) { openSettings(); return; }
+
     if (!fullPaperText.trim()) return;
     setFPRunning(true);
     setFPResult({ status: 'segmenting', sections: [], results: {} });
@@ -2672,7 +2843,7 @@ function App() {
       var ps = promptSegment(fullPaperText, paperType);
       var segResult;
       try {
-        segResult = await aiJson(selectedModel, currentKey, ps.system, ps.user);
+        segResult = await aiJson(ps.system, ps.user);
       } catch(segErr) {
         setFPResult({ status: 'error', error: 'Section detection failed: ' + segErr.message });
         return;
@@ -2702,7 +2873,7 @@ function App() {
       // Step 2: Evaluate all sections in parallel — update UI as each one completes
       var promises = sections.map(function(sec) {
         var pc = promptChapter(sec.key, sec.text, paperType);
-        return aiJson(selectedModel, currentKey, pc.system, pc.user)
+        return aiJson(pc.system, pc.user)
           .then(function(res) {
             setFPResult(function(prev) {
               var nr = {};
@@ -2779,92 +2950,6 @@ function App() {
         <p className="tagline">Paste your abstract. We handle the rest.</p>
       </header>
 
-      {/* ── Settings ── */}
-      <button
-        className={'settings-toggle' + (!currentKey ? ' needs-key' : '')}
-        onClick={function() { setSettings(function(o) { return !o; }); }}
-        aria-expanded={settingsOpen}
-        aria-controls="settings-panel"
-      >
-        ⚙ Settings {!currentKey && '— API key required'}
-      </button>
-
-      {settingsOpen && (
-        <div className="settings-panel" id="settings-panel" ref={settingsRef} role="region" aria-label="Settings">
-
-          {/* Model picker */}
-          <div className="field-label" style={{ marginBottom:'.6rem' }}>AI Model</div>
-          <div className="model-picker">
-            {['groq','claude','openai','gemini'].map(function(prov) {
-              const provModels = MODELS.filter(function(m) { return m.provider === prov; });
-              return (
-                <div key={prov} className="model-group">
-                  <span className="model-group-label" style={{ color: PROVIDERS[prov].color }}>
-                    {PROVIDERS[prov].label}
-                  </span>
-                  <div className="model-group-btns">
-                    {provModels.map(function(m) {
-                      return (
-                        <button
-                          key={m.id}
-                          className={'model-btn' + (selectedModel === m.id ? ' active' : '')}
-                          style={ selectedModel === m.id ? { borderColor: PROVIDERS[prov].color, color: PROVIDERS[prov].color, background: PROVIDERS[prov].color + '12' } : {} }
-                          onClick={function() { setModel(m.id); }}
-                          type="button"
-                        >
-                          {m.label}
-                          {m.badge && <span className="model-badge">{m.badge}</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* API key for current provider */}
-          <div style={{ marginTop:'1.1rem' }}>
-            <label className="field-label" htmlFor="api-key">
-              {PROVIDERS[provider].label} API Key
-            </label>
-            <input
-              id="api-key"
-              type="password"
-              value={currentKey}
-              onChange={function(e) { setProviderKey(e.target.value); }}
-              placeholder={PROVIDERS[provider].placeholder}
-              autoComplete="off"
-            />
-            <p className="key-note">{PROVIDERS[provider].note} · Stored in sessionStorage only, never logged.</p>
-            <button
-              className="key-guide-toggle"
-              onClick={function() { setKeyGuide(function(o) { return !o; }); }}
-              type="button"
-            >
-              {keyGuideOpen ? '▲ Hide steps' : '▼ How to get a free API key'}
-            </button>
-            {keyGuideOpen && KEY_STEPS[provider] && (
-              <div className="key-guide">
-                <p className="key-guide-title">Step-by-step: {PROVIDERS[provider].label} API Key</p>
-                <ol className="key-steps">
-                  {KEY_STEPS[provider].steps.map(function(step, i) {
-                    return (
-                      <li key={i} className="key-step">
-                        <span className="key-step-num">{i + 1}</span>
-                        <span>{step}</span>
-                      </li>
-                    );
-                  })}
-                </ol>
-                <span className="key-guide-url">{KEY_STEPS[provider].url}</span>
-              </div>
-            )}
-          </div>
-
-        </div>
-      )}
-
       {/* ── Paper type bar ── */}
       <div className="paper-type-bar">
         <span className="paper-type-lbl">Paper type:</span>
@@ -2890,13 +2975,7 @@ function App() {
         {[
           { key: 'title',        label: 'Title Recommender'   },
           { key: 'journal',      label: 'Journal Suggester'   },
-          { key: 'abstract',     label: 'Abstract Feedback'   },
-          { key: 'conclusion',   label: 'Conclusion Feedback' },
-          { key: 'chapter',      label: 'Chapter Review'      },
-          { key: 'research-q',   label: 'Research Question'   },
-          { key: 'contribution', label: 'Contribution Check'  },
           { key: 'keywords',     label: 'Keywords Optimizer'  },
-          { key: 'full-paper',   label: 'Full Paper Review'   },
         ].map(function(m) {
           return (
             <button
@@ -3100,20 +3179,22 @@ function App() {
                   );
                 })}
               </div>
-              {/* h-index + OA mandate row */}
-              <div className="hindex-row">
-                <label htmlFor="hindex">h-index (optional):</label>
-                <input
-                  id="hindex"
-                  className="hindex-input"
-                  type="number"
-                  min="0"
-                  max="200"
-                  value={journalPrefs.hindex}
-                  onChange={function(e) { setJPrefs(function(p) { return Object.assign({}, p, { hindex: e.target.value }); }); }}
-                  placeholder="e.g. 12"
-                />
-                <label style={{ display:'flex', alignItems:'center', gap:'.4rem', fontSize:'.8rem', color:'var(--muted)', cursor:'pointer', marginLeft:'.5rem' }}>
+              {/* IF tier filter */}
+              <div className="filter-row" style={{ marginTop:'.6rem' }}>
+                <span style={{ fontSize:'.8rem', color:'var(--muted)', marginRight:'.2rem' }}>Impact Factor:</span>
+                {IF_TIERS.map(function(tier) {
+                  return (
+                    <button key={tier.key}
+                      className={'filter-btn' + (journalPrefs.ifTier === tier.key ? ' active' : '')}
+                      onClick={function() { setJPrefs(function(p) { return Object.assign({}, p, { ifTier: tier.key }); }); }}
+                      type="button"
+                    >{tier.label}</button>
+                  );
+                })}
+              </div>
+              {/* OA mandate row */}
+              <div className="hindex-row" style={{ marginTop:'.5rem' }}>
+                <label style={{ display:'flex', alignItems:'center', gap:'.4rem', fontSize:'.8rem', color:'var(--muted)', cursor:'pointer' }}>
                   <input
                     type="checkbox"
                     checked={journalPrefs.oaMandate}
@@ -3385,7 +3466,7 @@ function App() {
           <a href="https://www.semanticscholar.org" target="_blank" rel="noopener noreferrer">Semantic Scholar</a>
           {' '}+{' '}
           <span style={{ fontFamily:'var(--mono)', fontSize:'.75rem', color:'var(--muted)' }}>
-            {(MODELS.find(function(m) { return m.id === selectedModel; }) || {}).label || selectedModel}
+            Llama 3.3 70B
           </span>
         </p>
         {(Object.keys(s).length > 0 || journalSteps !== null || abstractResult !== null || conclusionResult !== null || chapterResult !== null || rqResult !== null || contribResult !== null || kwResult !== null || fullPaperResult !== null) && (
