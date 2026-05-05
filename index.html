@@ -1286,7 +1286,8 @@ function promptJournal2(abstract, field, methodology, journalData, prefs, ifFilt
     const citedness = stats['2yr_mean_citedness'] != null ? stats['2yr_mean_citedness'] : null;
     const ifStr = citedness !== null ? citedness.toFixed(2) : 'N/A';
     const apc = j.apc_usd ? '$' + j.apc_usd : (j.apc_prices && j.apc_prices.length > 0 ? '$' + j.apc_prices[0].price : 'APC unknown');
-    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF ' + ifStr + ' | APC:' + apc + ' | ' + (j.host_organization_name || j.publisher || 'unknown publisher');
+    const paperCount = j._paperCount ? ' | ' + j._paperCount + ' matching papers published' : '';
+    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF ' + ifStr + ' | APC:' + apc + ' | ' + (j.host_organization_name || j.publisher || 'unknown publisher') + paperCount;
   }).join('\n');
 
   const access = prefs.access && prefs.access !== 'any' ? prefs.access : 'no preference';
@@ -2605,74 +2606,109 @@ function App() {
 
   async function runJournals() {
     setJRunning(true);
-    setJSteps({ status: 'loading', msg: 'Analysing abstract field and methodology…' });
+    setJSteps({ status: 'loading', msg: 'Extracting research keywords from abstract…' });
 
     try {
-      var p1 = promptJournal1(abstract);
-      var fieldInfo;
+      // Step 1: AI extracts specific research keywords
+      var kwPrompt = {
+        system: 'You are an academic search specialist. Return only valid JSON, no markdown.',
+        user: 'Extract the 4 most specific and distinctive research keywords or short phrases from this abstract — the kind that would appear in paper titles on this exact topic.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nReturn JSON exactly:\n{"keywords": ["kw1","kw2","kw3","kw4"], "field": "main academic discipline"}'
+      };
+      var kwResult;
       try {
-        fieldInfo = await aiJson(p1.system, p1.user);
-      } catch(fe) {
-        setJSteps({ status: 'error', error: 'Field analysis failed: ' + fe.message });
+        kwResult = await aiJson(kwPrompt.system, kwPrompt.user);
+      } catch(e) {
+        var fallbackWords = abstract.split(/\s+/).filter(function(w) { return w.length > 5; }).slice(0, 4);
+        kwResult = { keywords: fallbackWords, field: '' };
+      }
+
+      // Step 2: Search OpenAlex works (real published papers) using those keywords
+      setJSteps({ status: 'loading', msg: 'Searching real papers on this topic in OpenAlex…' });
+      var searchQuery = kwResult.keywords.slice(0, 3).join(' ');
+      var worksUrl = 'https://api.openalex.org/works?search=' + encodeURIComponent(searchQuery) +
+        '&filter=type:article&per-page=100&sort=cited_by_count:desc&mailto=support@f2yapps.com';
+
+      var worksRes = await fetch(worksUrl);
+      if (!worksRes.ok) throw new Error('OpenAlex paper search failed: HTTP ' + worksRes.status);
+      var worksData = await worksRes.json();
+      var works = worksData.results || [];
+
+      // Step 3: Tally which journals published those papers
+      var journalFreq = {};
+      works.forEach(function(w) {
+        var src = w.primary_location && w.primary_location.source;
+        if (!src || !src.id || src.type !== 'journal') return;
+        journalFreq[src.id] = (journalFreq[src.id] || 0) + 1;
+      });
+
+      var uniqueIds = Object.keys(journalFreq);
+      if (uniqueIds.length === 0) {
+        setJSteps({ status: 'error', error: 'No journal articles found for this topic in OpenAlex. The abstract may be too niche or use non-standard terminology. Try broadening your keywords.' });
         return;
       }
 
-      setJSteps({ status: 'loading', msg: 'Fetching journals from OpenAlex (3 queries in parallel)…' });
-      var terms = fieldInfo.search_terms || [fieldInfo.field || 'academic research'];
+      // Step 4: Fetch full source records (IF, homepage_url, OA status) in one batch call
+      setJSteps({ status: 'loading', msg: 'Fetching Impact Factor data for ' + uniqueIds.length + ' candidate journals…' });
+      var oaIds = uniqueIds.slice(0, 40).map(function(id) {
+        return id.split('/').pop(); // "https://openalex.org/S123" → "S123"
+      }).join('|');
 
-      var batches = await Promise.all(
-        terms.slice(0, 3).map(function(term) {
-          return fetchJournals(term).catch(function() { return []; });
-        })
-      );
+      var sourcesUrl = 'https://api.openalex.org/sources?filter=ids.openalex:' + oaIds + '&per-page=40&mailto=support@f2yapps.com';
+      var sourcesRes = await fetch(sourcesUrl);
+      var sourcesData = sourcesRes.ok ? await sourcesRes.json() : { results: [] };
+      var fullSources = sourcesData.results || [];
 
-      // Deduplicate by OpenAlex ID, keep full objects (including homepage_url)
-      var seenIds = {};
-      var allJournals = [];
-      batches.forEach(function(batch) {
-        batch.forEach(function(j) {
-          var id = j.id || j.display_name;
-          if (id && !seenIds[id]) { seenIds[id] = true; allJournals.push(j); }
-        });
-      });
-      allJournals.sort(function(a, b) { return (b.cited_by_count || 0) - (a.cited_by_count || 0); });
+      // Attach paper-count (topic relevance score) to each source
+      fullSources.forEach(function(src) { src._paperCount = journalFreq[src.id] || 0; });
 
-      if (allJournals.length === 0) {
-        try {
-          allJournals = await fetchJournals(fieldInfo.field || abstract.split(' ').slice(0, 4).join(' '));
-        } catch(fallbackErr) {
-          setJSteps({ status: 'error', error: 'Journal database error: ' + fallbackErr.message });
-          return;
-        }
-      }
-
-      // ── STRICT JS IF FILTER — no fallback to wrong-tier journals ────────────
+      // Step 5: Apply IF tier filter — strict, no fallback to wrong-tier results
       var tierDef = IF_TIERS.find(function(t) { return t.key === (journalPrefs.ifTier || 'any'); }) || IF_TIERS[0];
-      var ifFilterNote = '';
+      var eligibleJournals = fullSources;
+
       if (tierDef.key !== 'any') {
-        var filtered = allJournals.filter(function(j) {
+        eligibleJournals = fullSources.filter(function(j) {
           var ifVal = (j.summary_stats || {})['2yr_mean_citedness'];
           if (ifVal == null) return false;
           if (tierDef.min !== null && ifVal < tierDef.min) return false;
           if (tierDef.max !== null && ifVal > tierDef.max) return false;
           return true;
         });
-        if (filtered.length === 0) {
+        if (eligibleJournals.length === 0) {
           setJSteps({
             status: 'error',
-            error: 'No journals with a verified Impact Factor in ' + tierDef.range + ' were found in OpenAlex for this field. OpenAlex may not have IF data for niche journals in this area. Try selecting "Any IF" to see all available journals, then check their IF manually.'
+            error: 'Of the ' + fullSources.length + ' journals that published papers on this topic, none have a verified OpenAlex IF in ' + tierDef.range + '. Try "Any IF" to see all matches, then check their IF manually.'
           });
           return;
         }
-        allJournals = filtered;
-        ifFilterNote = filtered.length + ' journals with verified IF ' + tierDef.range + ' passed the filter (OpenAlex 2-year mean citedness). IF values on each card come directly from OpenAlex — not from AI.';
       }
-      // ────────────────────────────────────────────────────────────────────────
 
-      var journalPool = allJournals;
+      // Apply open-access preference filter
+      if (journalPrefs.access === 'oa') {
+        var oaFiltered = eligibleJournals.filter(function(j) { return j.is_oa === true; });
+        if (oaFiltered.length === 0) {
+          setJSteps({ status: 'error', error: 'No open-access journals found in this IF tier for this topic. Try removing the OA filter.' });
+          return;
+        }
+        eligibleJournals = oaFiltered;
+      }
 
-      setJSteps({ status: 'loading', msg: 'Ranking ' + journalPool.length + ' journals by topic, method, and scope fit…' });
-      var p2 = promptJournal2(abstract, fieldInfo.field || '', fieldInfo.methodology || '', journalPool, journalPrefs, ifFilterNote, paperType);
+      // Step 6: Sort by topic relevance (paper count) then IF descending
+      eligibleJournals.sort(function(a, b) {
+        var countDiff = (b._paperCount || 0) - (a._paperCount || 0);
+        if (countDiff !== 0) return countDiff;
+        var ifA = (a.summary_stats || {})['2yr_mean_citedness'] || 0;
+        var ifB = (b.summary_stats || {})['2yr_mean_citedness'] || 0;
+        return ifB - ifA;
+      });
+
+      var journalPool = eligibleJournals.slice(0, 15);
+      var ifFilterNote = tierDef.key !== 'any'
+        ? journalPool.length + ' journals with verified OpenAlex IF ' + tierDef.range + ' — all have published papers matching your topic.'
+        : '';
+
+      // Step 7: AI ranks by academic fit with this specific paper
+      setJSteps({ status: 'loading', msg: 'AI ranking ' + journalPool.length + ' topic-matched journals by fit for your paper…' });
+      var p2 = promptJournal2(abstract, kwResult.field || '', '', journalPool, journalPrefs, ifFilterNote, paperType);
       var ranked;
       try {
         ranked = await aiJson(p2.system, p2.user);
@@ -2681,11 +2717,8 @@ function App() {
         return;
       }
 
-      // Enrich AI output: override impact_factor with verified OpenAlex value;
-      // add homepage_url and openalex_url from original data.
-      // The AI must never be the source of truth for numeric IF values.
+      // Step 8: Override AI IF values with verified OpenAlex data — AI is never source of truth for IF
       var enriched = (ranked.journals || []).map(function(j) {
-        // Fuzzy match: try exact, then partial
         var match = journalPool.find(function(o) {
           return o.display_name && j.name &&
             o.display_name.toLowerCase().trim() === j.name.toLowerCase().trim();
@@ -2696,18 +2729,18 @@ function App() {
           );
         });
         var verifiedIF = match ? ((match.summary_stats || {})['2yr_mean_citedness'] || null) : null;
-        var homepageUrl = (match && match.homepage_url) || null;
-        var openalexUrl = (match && match.id) ? match.id.replace('https://api.openalex.org/sources/', 'https://openalex.org/sources/') : null;
         return Object.assign({}, j, {
           impact_factor: verifiedIF !== null ? verifiedIF : j.impact_factor,
           if_verified: verifiedIF !== null,
-          homepage_url: homepageUrl,
-          openalex_url: openalexUrl,
+          homepage_url: (match && match.homepage_url) || null,
+          openalex_url: match ? (match.id || '').replace('https://api.openalex.org/', 'https://openalex.org/') : null,
+          paper_count: match ? (match._paperCount || 0) : 0,
           if_filter_note: ifFilterNote || null,
         });
       });
 
       setJSteps({ status: 'done', data: enriched, ifFilterNote: ifFilterNote });
+
     } catch(outerErr) {
       setJSteps({ status: 'error', error: outerErr.message });
     } finally {
@@ -3075,9 +3108,9 @@ function App() {
 
       {/* ── Header ── */}
       <header className="header">
-        <p className="eyebrow">Academic Tool</p>
+        <p className="eyebrow">Academic Writing Tool</p>
         <h1>Title<em>Smart</em></h1>
-        <p className="tagline">Paste your abstract. We handle the rest.</p>
+        <p className="tagline">Grounded in real academic literature — not guesswork from a general-purpose chatbot.</p>
       </header>
 
       {/* ── Paper type bar ── */}
@@ -3613,9 +3646,17 @@ function App() {
 
       {/* ── Footer ── */}
       <footer className="footer">
+        <p style={{ fontWeight: 600, color: 'var(--ink)', marginBottom: '.25rem' }}>
+          Created by Fitsum Teshome, Ph.D.
+        </p>
+        <p style={{ fontSize: '.72rem', fontStyle: 'italic', marginBottom: '.75rem' }}>
+          TitleSmart pulls from real academic databases — Semantic Scholar and OpenAlex — to give you evidence-based recommendations, not the kind of generic suggestions you'd get from typing a prompt into a general-purpose AI chat tool.
+        </p>
         <p>
           Powered by{' '}
           <a href="https://www.semanticscholar.org" target="_blank" rel="noopener noreferrer">Semantic Scholar</a>
+          {' '}+{' '}
+          <a href="https://openalex.org" target="_blank" rel="noopener noreferrer">OpenAlex</a>
           {' '}+{' '}
           <span style={{ fontFamily:'var(--mono)', fontSize:'.75rem', color:'var(--muted)' }}>
             Llama 3.3 70B
