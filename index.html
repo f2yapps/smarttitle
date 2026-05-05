@@ -1286,8 +1286,8 @@ function promptJournal2(abstract, field, methodology, journalData, prefs, ifFilt
     const citedness = stats['2yr_mean_citedness'] != null ? stats['2yr_mean_citedness'] : null;
     const ifStr = citedness !== null ? citedness.toFixed(2) : 'N/A';
     const apc = j.apc_usd ? '$' + j.apc_usd : (j.apc_prices && j.apc_prices.length > 0 ? '$' + j.apc_prices[0].price : 'APC unknown');
-    const paperCount = j._paperCount ? ' | ' + j._paperCount + ' matching papers published' : '';
-    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF ' + ifStr + ' | APC:' + apc + ' | ' + (j.host_organization_name || j.publisher || 'unknown publisher') + paperCount;
+    const scopeTopics = j._topicNames && j._topicNames.length > 0 ? ' | editorial scope: ' + j._topicNames.slice(0, 4).join(', ') : '';
+    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF ' + ifStr + ' | APC:' + apc + ' | ' + (j.host_organization_name || j.publisher || 'unknown publisher') + scopeTopics;
   }).join('\n');
 
   const access = prefs.access && prefs.access !== 'any' ? prefs.access : 'no preference';
@@ -1307,23 +1307,24 @@ ${abstract}
 """
 
 FIELD: ${field}
-METHODOLOGY: ${methodology}
+KEY RESEARCH TOPICS (from OpenAlex taxonomy): ${methodology}
 MANUSCRIPT TYPE: ${msType}
 ACCESS PREFERENCE: ${access}${oaNote}
 ${filterCtx}
 
-JOURNAL LIST (IF = 2-year mean citedness from OpenAlex — real data, do not alter these numbers):
+JOURNAL LIST — each entry shows: name | access | IF (OpenAlex verified) | APC | publisher | editorial scope topics
+DO NOT alter IF values. Copy them exactly.
 ${rows}
 
 Rules:
 - impact_factor: copy the IF value EXACTLY from the list above; use 0.0 if N/A
 - if_tier: classify as High (≥10) / Strong (5–9.9) / Good (2–4.9) / Standard (<2) / Unknown (N/A)
-- topic_fit (0–100): does this journal regularly publish papers on THIS specific topic?
-- method_fit (0–100): does this journal welcome THIS methodology type?
-- scope_fit (0–100): does the paper's claim breadth match what this journal typically publishes?
-- rejection_risk: low | medium | high
-- rejection_risk_note: ONE concrete sentence naming the specific desk-rejection risk for THIS paper at THIS journal
-- why: 2–3 sentences; name a SPECIFIC editorial reason this journal fits THIS paper
+- topic_fit (0–100): how well does this journal's editorial scope match the paper's specific topic?
+- method_fit (0–100): does this journal regularly publish papers using this methodology?
+- scope_fit (0–100): does the paper's contribution breadth match what this journal typically accepts?
+- rejection_risk: low | medium | high — assess based on scope match and IF vs paper novelty
+- rejection_risk_note: ONE concrete sentence on the most likely desk-rejection reason for THIS paper at THIS journal
+- why: 2–3 sentences citing a SPECIFIC editorial reason (refer to the journal's scope topics listed above)
 
 Return JSON exactly:
 {
@@ -1992,6 +1993,18 @@ function JournalCard({ item, rank }) {
           </p>
         )}
         {item.why && <p className="journal-why">{item.why}</p>}
+        {item.journal_topics && item.journal_topics.length > 0 && (
+          <div style={{ marginTop:'.6rem', display:'flex', flexWrap:'wrap', gap:'.3rem', alignItems:'center' }}>
+            <span style={{ fontSize:'.62rem', color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em', marginRight:'.15rem' }}>Covers:</span>
+            {item.journal_topics.slice(0, 5).map(function(t, i) {
+              return (
+                <span key={i} style={{ fontSize:'.68rem', background:'var(--bg)', border:'1px solid var(--border)', borderRadius:'4px', padding:'.1rem .45rem', color:'var(--ink)' }}>
+                  {t}
+                </span>
+              );
+            })}
+          </div>
+        )}
         <div style={{ marginTop:'.65rem', display:'flex', gap:'.6rem', flexWrap:'wrap' }}>
           {item.homepage_url && (
             <a href={item.homepage_url} target="_blank" rel="noopener noreferrer"
@@ -2606,67 +2619,90 @@ function App() {
 
   async function runJournals() {
     setJRunning(true);
-    setJSteps({ status: 'loading', msg: 'Extracting research keywords from abstract…' });
+    setJSteps({ status: 'loading', msg: 'Identifying research topics in your abstract…' });
 
     try {
-      // Step 1: AI extracts specific research keywords
+      // Step 1: AI extracts precise search query and field
       var kwPrompt = {
         system: 'You are an academic search specialist. Return only valid JSON, no markdown.',
-        user: 'Extract the 4 most specific and distinctive research keywords or short phrases from this abstract — the kind that would appear in paper titles on this exact topic.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nReturn JSON exactly:\n{"keywords": ["kw1","kw2","kw3","kw4"], "field": "main academic discipline"}'
+        user: 'Given this abstract, write the single best keyword search query (3–5 words) to find closely related academic papers, and name the main field.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nReturn JSON exactly:\n{"query": "3-5 word search string", "field": "main academic discipline"}'
       };
       var kwResult;
       try {
         kwResult = await aiJson(kwPrompt.system, kwPrompt.user);
       } catch(e) {
-        var fallbackWords = abstract.split(/\s+/).filter(function(w) { return w.length > 5; }).slice(0, 4);
-        kwResult = { keywords: fallbackWords, field: '' };
+        kwResult = { query: abstract.split(/\s+/).filter(function(w) { return w.length > 4; }).slice(0, 4).join(' '), field: '' };
       }
 
-      // Step 2: Search OpenAlex works (real published papers) using those keywords
-      setJSteps({ status: 'loading', msg: 'Searching real papers on this topic in OpenAlex…' });
-      var searchQuery = kwResult.keywords.slice(0, 3).join(' ');
-      var worksUrl = 'https://api.openalex.org/works?search=' + encodeURIComponent(searchQuery) +
-        '&filter=type:article&per-page=100&sort=cited_by_count:desc&mailto=support@f2yapps.com';
+      // Step 2: Search works to discover the OpenAlex topic taxonomy for this research area
+      setJSteps({ status: 'loading', msg: 'Mapping research topics from academic literature…' });
+      var worksUrl = 'https://api.openalex.org/works?search=' + encodeURIComponent(kwResult.query) +
+        '&filter=type:article&per-page=50&sort=cited_by_count:desc&select=id,topics&mailto=support@f2yapps.com';
 
       var worksRes = await fetch(worksUrl);
-      if (!worksRes.ok) throw new Error('OpenAlex paper search failed: HTTP ' + worksRes.status);
+      if (!worksRes.ok) throw new Error('OpenAlex topic discovery failed: HTTP ' + worksRes.status);
       var worksData = await worksRes.json();
       var works = worksData.results || [];
 
-      // Step 3: Tally which journals published those papers
-      var journalFreq = {};
+      // Tally topic frequencies across all returned papers
+      var topicFreq = {};
+      var topicNames = {};
       works.forEach(function(w) {
-        var src = w.primary_location && w.primary_location.source;
-        if (!src || !src.id || src.type !== 'journal') return;
-        journalFreq[src.id] = (journalFreq[src.id] || 0) + 1;
+        (w.topics || []).forEach(function(t, idx) {
+          if (!t.id) return;
+          // Weight earlier/higher-scored topics more
+          var weight = idx === 0 ? 3 : idx <= 2 ? 2 : 1;
+          topicFreq[t.id] = (topicFreq[t.id] || 0) + weight;
+          topicNames[t.id] = t.display_name;
+        });
       });
 
-      var uniqueIds = Object.keys(journalFreq);
-      if (uniqueIds.length === 0) {
-        setJSteps({ status: 'error', error: 'No journal articles found for this topic in OpenAlex. The abstract may be too niche or use non-standard terminology. Try broadening your keywords.' });
+      // Sort by frequency, take top 5 topic IDs
+      var sortedTopicIds = Object.keys(topicFreq).sort(function(a, b) {
+        return topicFreq[b] - topicFreq[a];
+      });
+      var topIds = sortedTopicIds.slice(0, 5);
+
+      if (topIds.length === 0) {
+        setJSteps({ status: 'error', error: 'Could not map research topics from your abstract. Try a more detailed or specific abstract.' });
         return;
       }
 
-      // Step 4: Fetch full source records (IF, homepage_url, OA status) in one batch call
-      setJSteps({ status: 'loading', msg: 'Fetching Impact Factor data for ' + uniqueIds.length + ' candidate journals…' });
-      var oaIds = uniqueIds.slice(0, 40).map(function(id) {
-        return id.split('/').pop(); // "https://openalex.org/S123" → "S123"
-      }).join('|');
+      var detectedTopics = topIds.map(function(id) { return topicNames[id]; }).filter(Boolean);
 
-      var sourcesUrl = 'https://api.openalex.org/sources?filter=ids.openalex:' + oaIds + '&per-page=40&mailto=support@f2yapps.com';
+      // Step 3: Find journals whose editorial scope covers those exact topics
+      // This is scope-to-scope matching — like how Springer Journal Finder works
+      setJSteps({ status: 'loading', msg: 'Finding journals whose scope covers: ' + detectedTopics.slice(0, 3).join(', ') + '…' });
+      var topicFilter = topIds.map(function(id) { return id.split('/').pop(); }).join('|');
+      var sourcesUrl = 'https://api.openalex.org/sources?filter=topics.id:' + topicFilter + ',type:journal' +
+        '&per-page=50&sort=cited_by_count:desc&mailto=support@f2yapps.com';
+
       var sourcesRes = await fetch(sourcesUrl);
-      var sourcesData = sourcesRes.ok ? await sourcesRes.json() : { results: [] };
-      var fullSources = sourcesData.results || [];
+      if (!sourcesRes.ok) throw new Error('Journal scope search failed: HTTP ' + sourcesRes.status);
+      var sourcesData = await sourcesRes.json();
+      var allJournals = sourcesData.results || [];
 
-      // Attach paper-count (topic relevance score) to each source
-      fullSources.forEach(function(src) { src._paperCount = journalFreq[src.id] || 0; });
+      if (allJournals.length === 0) {
+        setJSteps({ status: 'error', error: 'No journals found with editorial scope matching these research topics. Try a different abstract or select "Any IF".' });
+        return;
+      }
 
-      // Step 5: Apply IF tier filter — strict, no fallback to wrong-tier results
+      // Score each journal by how many of the detected topics appear in its editorial scope
+      allJournals.forEach(function(j) {
+        var jTopicIds = (j.topics || []).map(function(t) { return t.id; });
+        var overlap = topIds.filter(function(tid) {
+          return jTopicIds.some(function(jt) { return jt === tid || jt.endsWith('/' + tid.split('/').pop()); });
+        }).length;
+        j._topicOverlap = overlap;
+        j._topicNames = (j.topics || []).slice(0, 5).map(function(t) { return t.display_name; });
+      });
+
+      // Step 4: Apply IF tier filter — strict, zero tolerance for wrong-tier results
       var tierDef = IF_TIERS.find(function(t) { return t.key === (journalPrefs.ifTier || 'any'); }) || IF_TIERS[0];
-      var eligibleJournals = fullSources;
+      var eligibleJournals = allJournals;
 
       if (tierDef.key !== 'any') {
-        eligibleJournals = fullSources.filter(function(j) {
+        eligibleJournals = allJournals.filter(function(j) {
           var ifVal = (j.summary_stats || {})['2yr_mean_citedness'];
           if (ifVal == null) return false;
           if (tierDef.min !== null && ifVal < tierDef.min) return false;
@@ -2676,7 +2712,7 @@ function App() {
         if (eligibleJournals.length === 0) {
           setJSteps({
             status: 'error',
-            error: 'Of the ' + fullSources.length + ' journals that published papers on this topic, none have a verified OpenAlex IF in ' + tierDef.range + '. Try "Any IF" to see all matches, then check their IF manually.'
+            error: 'Of the ' + allJournals.length + ' journals whose scope covers your research topics, none have a verified OpenAlex IF in ' + tierDef.range + '. Try "Any IF" to see all scope-matched journals.'
           });
           return;
         }
@@ -2686,16 +2722,16 @@ function App() {
       if (journalPrefs.access === 'oa') {
         var oaFiltered = eligibleJournals.filter(function(j) { return j.is_oa === true; });
         if (oaFiltered.length === 0) {
-          setJSteps({ status: 'error', error: 'No open-access journals found in this IF tier for this topic. Try removing the OA filter.' });
+          setJSteps({ status: 'error', error: 'No open-access journals found in this IF tier with a matching scope. Try removing the OA filter.' });
           return;
         }
         eligibleJournals = oaFiltered;
       }
 
-      // Step 6: Sort by topic relevance (paper count) then IF descending
+      // Step 5: Rank by scope overlap (most topic overlap first), then IF descending
       eligibleJournals.sort(function(a, b) {
-        var countDiff = (b._paperCount || 0) - (a._paperCount || 0);
-        if (countDiff !== 0) return countDiff;
+        var overlapDiff = (b._topicOverlap || 0) - (a._topicOverlap || 0);
+        if (overlapDiff !== 0) return overlapDiff;
         var ifA = (a.summary_stats || {})['2yr_mean_citedness'] || 0;
         var ifB = (b.summary_stats || {})['2yr_mean_citedness'] || 0;
         return ifB - ifA;
@@ -2703,12 +2739,12 @@ function App() {
 
       var journalPool = eligibleJournals.slice(0, 15);
       var ifFilterNote = tierDef.key !== 'any'
-        ? journalPool.length + ' journals with verified OpenAlex IF ' + tierDef.range + ' — all have published papers matching your topic.'
+        ? journalPool.length + ' journals with verified OpenAlex IF ' + tierDef.range + ' whose editorial scope covers your research topics.'
         : '';
 
-      // Step 7: AI ranks by academic fit with this specific paper
-      setJSteps({ status: 'loading', msg: 'AI ranking ' + journalPool.length + ' topic-matched journals by fit for your paper…' });
-      var p2 = promptJournal2(abstract, kwResult.field || '', '', journalPool, journalPrefs, ifFilterNote, paperType);
+      // Step 6: AI ranks pool by fit with this specific paper — it sees scope topics, IF, APC
+      setJSteps({ status: 'loading', msg: 'AI ranking ' + journalPool.length + ' scope-matched journals for your specific paper…' });
+      var p2 = promptJournal2(abstract, kwResult.field || '', detectedTopics.join(', '), journalPool, journalPrefs, ifFilterNote, paperType);
       var ranked;
       try {
         ranked = await aiJson(p2.system, p2.user);
@@ -2717,7 +2753,7 @@ function App() {
         return;
       }
 
-      // Step 8: Override AI IF values with verified OpenAlex data — AI is never source of truth for IF
+      // Step 7: Override every AI-generated IF value with the verified OpenAlex figure
       var enriched = (ranked.journals || []).map(function(j) {
         var match = journalPool.find(function(o) {
           return o.display_name && j.name &&
@@ -2734,12 +2770,13 @@ function App() {
           if_verified: verifiedIF !== null,
           homepage_url: (match && match.homepage_url) || null,
           openalex_url: match ? (match.id || '').replace('https://api.openalex.org/', 'https://openalex.org/') : null,
-          paper_count: match ? (match._paperCount || 0) : 0,
+          topic_overlap: match ? (match._topicOverlap || 0) : 0,
+          journal_topics: match ? (match._topicNames || []) : [],
           if_filter_note: ifFilterNote || null,
         });
       });
 
-      setJSteps({ status: 'done', data: enriched, ifFilterNote: ifFilterNote });
+      setJSteps({ status: 'done', data: enriched, ifFilterNote: ifFilterNote, detectedTopics: detectedTopics });
 
     } catch(outerErr) {
       setJSteps({ status: 'error', error: outerErr.message });
@@ -3510,9 +3547,14 @@ function App() {
       )}
       {mode === 'journal' && journalSteps !== null && journalSteps.status === 'done' && (
         <StepCard num={1} title="Journal Recommendations" status="done">
+          {journalSteps.detectedTopics && journalSteps.detectedTopics.length > 0 && (
+            <div style={{ fontSize:'.78rem', background:'#f0f4ff', border:'1px solid #c5d0f5', borderRadius:'7px', padding:'.45rem .75rem', marginBottom:'.55rem', color:'#3a4a8a' }}>
+              <strong>Detected research topics:</strong> {journalSteps.detectedTopics.join(' · ')}
+            </div>
+          )}
           {journalSteps.ifFilterNote && (
             <div style={{ fontSize:'.78rem', background:'#e8f5e9', border:'1px solid #c3e6cb', borderRadius:'7px', padding:'.45rem .75rem', marginBottom:'.85rem', color:'#2d7a3a' }}>
-              ✓ IF filter applied: {journalSteps.ifFilterNote}
+              ✓ {journalSteps.ifFilterNote}
             </div>
           )}
           <div className="journal-list">
