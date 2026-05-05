@@ -1286,8 +1286,9 @@ function promptJournal2(abstract, field, methodology, journalData, prefs, ifFilt
     const citedness = stats['2yr_mean_citedness'] != null ? stats['2yr_mean_citedness'] : null;
     const ifStr = citedness !== null ? citedness.toFixed(2) : 'N/A';
     const apc = j.apc_usd ? '$' + j.apc_usd : (j.apc_prices && j.apc_prices.length > 0 ? '$' + j.apc_prices[0].price : 'APC unknown');
-    const scopeTopics = j._topicNames && j._topicNames.length > 0 ? ' | editorial scope: ' + j._topicNames.slice(0, 4).join(', ') : '';
-    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF ' + ifStr + ' | APC:' + apc + ' | ' + (j.host_organization_name || j.publisher || 'unknown publisher') + scopeTopics;
+    const paperCount = j._paperCount ? ' | ' + j._paperCount + ' papers on this topic published here' : '';
+    const scopeTopics = j._topicNames && j._topicNames.length > 0 ? ' | covers: ' + j._topicNames.slice(0, 4).join(', ') : '';
+    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF ' + ifStr + ' | APC:' + apc + ' | ' + (j.host_organization_name || j.publisher || 'unknown publisher') + paperCount + scopeTopics;
   }).join('\n');
 
   const access = prefs.access && prefs.access !== 'any' ? prefs.access : 'no preference';
@@ -2619,90 +2620,85 @@ function App() {
 
   async function runJournals() {
     setJRunning(true);
-    setJSteps({ status: 'loading', msg: 'Identifying research topics in your abstract…' });
+    setJSteps({ status: 'loading', msg: 'Generating search angles from your abstract…' });
 
     try {
-      // Step 1: AI extracts precise search query and field
+      // Step 1: AI generates 4 diverse search queries covering different angles of the paper
       var kwPrompt = {
         system: 'You are an academic search specialist. Return only valid JSON, no markdown.',
-        user: 'Given this abstract, write the single best keyword search query (3–5 words) to find closely related academic papers, and name the main field.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nReturn JSON exactly:\n{"query": "3-5 word search string", "field": "main academic discipline"}'
+        user: 'Given this abstract, generate 4 different keyword search queries (each 3–5 words) that together would surface papers covering all dimensions of this research — main topic, methodology, application domain, and key concept. Make them distinct from each other.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nReturn JSON exactly:\n{"queries": ["query1","query2","query3","query4"], "field": "main academic discipline"}'
       };
+
       var kwResult;
       try {
         kwResult = await aiJson(kwPrompt.system, kwPrompt.user);
       } catch(e) {
-        kwResult = { query: abstract.split(/\s+/).filter(function(w) { return w.length > 4; }).slice(0, 4).join(' '), field: '' };
+        var fw = abstract.split(/\s+/).filter(function(w) { return w.length > 4; });
+        kwResult = { queries: [fw.slice(0,4).join(' '), fw.slice(4,8).join(' ')], field: '' };
       }
 
-      // Step 2: Search works to discover the OpenAlex topic taxonomy for this research area
-      setJSteps({ status: 'loading', msg: 'Mapping research topics from academic literature…' });
-      var worksUrl = 'https://api.openalex.org/works?search=' + encodeURIComponent(kwResult.query) +
-        '&filter=type:article&per-page=50&sort=cited_by_count:desc&select=id,topics&mailto=support@f2yapps.com';
+      var queries = (kwResult.queries || []).slice(0, 4).filter(Boolean);
+      if (queries.length === 0) queries = [abstract.split(/\s+/).slice(0, 5).join(' ')];
 
-      var worksRes = await fetch(worksUrl);
-      if (!worksRes.ok) throw new Error('OpenAlex topic discovery failed: HTTP ' + worksRes.status);
-      var worksData = await worksRes.json();
-      var works = worksData.results || [];
+      // Step 2: Run all 4 queries in parallel — 50 papers each = up to 200 papers total
+      setJSteps({ status: 'loading', msg: 'Pulling ' + (queries.length * 50) + ' papers across ' + queries.length + ' search angles…' });
 
-      // Tally topic frequencies across all returned papers
-      var topicFreq = {};
-      var topicNames = {};
-      works.forEach(function(w) {
-        (w.topics || []).forEach(function(t, idx) {
-          if (!t.id) return;
-          // Weight earlier/higher-scored topics more
-          var weight = idx === 0 ? 3 : idx <= 2 ? 2 : 1;
-          topicFreq[t.id] = (topicFreq[t.id] || 0) + weight;
-          topicNames[t.id] = t.display_name;
+      var paperBatches = await Promise.all(
+        queries.map(function(q) {
+          var url = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) +
+            '&filter=type:article&per-page=50&sort=cited_by_count:desc' +
+            '&select=id,primary_location&mailto=support@f2yapps.com';
+          return fetch(url)
+            .then(function(r) { return r.ok ? r.json() : { results: [] }; })
+            .then(function(d) { return d.results || []; })
+            .catch(function() { return []; });
+        })
+      );
+
+      // Step 3: Group all papers by journal, count how many times each appears
+      var journalFreq = {};
+      paperBatches.forEach(function(batch) {
+        batch.forEach(function(work) {
+          var src = work.primary_location && work.primary_location.source;
+          if (!src || !src.id || src.type !== 'journal') return;
+          journalFreq[src.id] = (journalFreq[src.id] || 0) + 1;
         });
       });
 
-      // Sort by frequency, take top 5 topic IDs
-      var sortedTopicIds = Object.keys(topicFreq).sort(function(a, b) {
-        return topicFreq[b] - topicFreq[a];
+      var sortedIds = Object.keys(journalFreq).sort(function(a, b) {
+        return journalFreq[b] - journalFreq[a];
       });
-      var topIds = sortedTopicIds.slice(0, 5);
 
-      if (topIds.length === 0) {
-        setJSteps({ status: 'error', error: 'Could not map research topics from your abstract. Try a more detailed or specific abstract.' });
+      if (sortedIds.length === 0) {
+        setJSteps({ status: 'error', error: 'No journal articles found for this topic in OpenAlex. Try a different abstract.' });
         return;
       }
 
-      var detectedTopics = topIds.map(function(id) { return topicNames[id]; }).filter(Boolean);
+      // Take top 60 journals by paper frequency
+      var top60Ids = sortedIds.slice(0, 60);
 
-      // Step 3: Find journals whose editorial scope covers those exact topics
-      // This is scope-to-scope matching — like how Springer Journal Finder works
-      setJSteps({ status: 'loading', msg: 'Finding journals whose scope covers: ' + detectedTopics.slice(0, 3).join(', ') + '…' });
-      var topicFilter = topIds.map(function(id) { return id.split('/').pop(); }).join('|');
-      var sourcesUrl = 'https://api.openalex.org/sources?filter=topics.id:' + topicFilter + ',type:journal' +
-        '&per-page=50&sort=cited_by_count:desc&mailto=support@f2yapps.com';
+      // Step 4: Batch-fetch full journal records — IF, OA, APC, homepage, editorial topics — in one call
+      setJSteps({ status: 'loading', msg: 'Fetching Impact Factor data for ' + top60Ids.length + ' candidate journals…' });
 
-      var sourcesRes = await fetch(sourcesUrl);
-      if (!sourcesRes.ok) throw new Error('Journal scope search failed: HTTP ' + sourcesRes.status);
-      var sourcesData = await sourcesRes.json();
-      var allJournals = sourcesData.results || [];
+      var oaIds = top60Ids.map(function(id) { return id.split('/').pop(); }).join('|');
+      var sourcesRes = await fetch(
+        'https://api.openalex.org/sources?filter=ids.openalex:' + oaIds + '&per-page=60&mailto=support@f2yapps.com'
+      );
+      if (!sourcesRes.ok) throw new Error('Journal details fetch failed: HTTP ' + sourcesRes.status);
+      var fullSources = (await sourcesRes.json()).results || [];
 
-      if (allJournals.length === 0) {
-        setJSteps({ status: 'error', error: 'No journals found with editorial scope matching these research topics. Try a different abstract or select "Any IF".' });
-        return;
-      }
-
-      // Score each journal by how many of the detected topics appear in its editorial scope
-      allJournals.forEach(function(j) {
-        var jTopicIds = (j.topics || []).map(function(t) { return t.id; });
-        var overlap = topIds.filter(function(tid) {
-          return jTopicIds.some(function(jt) { return jt === tid || jt.endsWith('/' + tid.split('/').pop()); });
-        }).length;
-        j._topicOverlap = overlap;
-        j._topicNames = (j.topics || []).slice(0, 5).map(function(t) { return t.display_name; });
+      // Attach frequency count and editorial topic names to each source record
+      fullSources.forEach(function(src) {
+        src._paperCount = journalFreq[src.id] || 0;
+        src._topicNames = (src.topics || []).slice(0, 6).map(function(t) { return t.display_name; });
       });
 
-      // Step 4: Apply IF tier filter — strict, zero tolerance for wrong-tier results
+      // Step 5: Strict IF tier filter — no tolerance for wrong-tier results
       var tierDef = IF_TIERS.find(function(t) { return t.key === (journalPrefs.ifTier || 'any'); }) || IF_TIERS[0];
-      var eligibleJournals = allJournals;
+      var eligibleJournals = fullSources;
 
       if (tierDef.key !== 'any') {
-        eligibleJournals = allJournals.filter(function(j) {
+        eligibleJournals = fullSources.filter(function(j) {
           var ifVal = (j.summary_stats || {})['2yr_mean_citedness'];
           if (ifVal == null) return false;
           if (tierDef.min !== null && ifVal < tierDef.min) return false;
@@ -2712,26 +2708,26 @@ function App() {
         if (eligibleJournals.length === 0) {
           setJSteps({
             status: 'error',
-            error: 'Of the ' + allJournals.length + ' journals whose scope covers your research topics, none have a verified OpenAlex IF in ' + tierDef.range + '. Try "Any IF" to see all scope-matched journals.'
+            error: 'Among the ' + fullSources.length + ' journals that published papers on this topic, none have a verified OpenAlex IF in ' + tierDef.range + '. Try "Any IF" to see all results, then filter manually.'
           });
           return;
         }
       }
 
-      // Apply open-access preference filter
+      // OA filter
       if (journalPrefs.access === 'oa') {
         var oaFiltered = eligibleJournals.filter(function(j) { return j.is_oa === true; });
         if (oaFiltered.length === 0) {
-          setJSteps({ status: 'error', error: 'No open-access journals found in this IF tier with a matching scope. Try removing the OA filter.' });
+          setJSteps({ status: 'error', error: 'No open-access journals in this IF tier published papers on this topic. Remove the OA filter to see all matches.' });
           return;
         }
         eligibleJournals = oaFiltered;
       }
 
-      // Step 5: Rank by scope overlap (most topic overlap first), then IF descending
+      // Step 6: Sort by paper frequency (topic relevance signal), then IF
       eligibleJournals.sort(function(a, b) {
-        var overlapDiff = (b._topicOverlap || 0) - (a._topicOverlap || 0);
-        if (overlapDiff !== 0) return overlapDiff;
+        var freqDiff = (b._paperCount || 0) - (a._paperCount || 0);
+        if (freqDiff !== 0) return freqDiff;
         var ifA = (a.summary_stats || {})['2yr_mean_citedness'] || 0;
         var ifB = (b.summary_stats || {})['2yr_mean_citedness'] || 0;
         return ifB - ifA;
@@ -2739,21 +2735,21 @@ function App() {
 
       var journalPool = eligibleJournals.slice(0, 15);
       var ifFilterNote = tierDef.key !== 'any'
-        ? journalPool.length + ' journals with verified OpenAlex IF ' + tierDef.range + ' whose editorial scope covers your research topics.'
-        : '';
+        ? journalPool.length + ' journals with verified OpenAlex IF ' + tierDef.range + ' — drawn from ' + sortedIds.length + ' journals that published papers on this topic.'
+        : sortedIds.length + ' unique journals identified from publication history across ' + queries.length + ' search angles.';
 
-      // Step 6: AI ranks pool by fit with this specific paper — it sees scope topics, IF, APC
-      setJSteps({ status: 'loading', msg: 'AI ranking ' + journalPool.length + ' scope-matched journals for your specific paper…' });
-      var p2 = promptJournal2(abstract, kwResult.field || '', detectedTopics.join(', '), journalPool, journalPrefs, ifFilterNote, paperType);
+      // Step 7: AI ranks the pool — it sees paper count, IF, APC, and editorial topics for each journal
+      setJSteps({ status: 'loading', msg: 'AI ranking ' + journalPool.length + ' candidate journals for your specific paper…' });
+      var p2 = promptJournal2(abstract, kwResult.field || '', queries.join(' | '), journalPool, journalPrefs, ifFilterNote, paperType);
       var ranked;
       try {
         ranked = await aiJson(p2.system, p2.user);
       } catch(re) {
-        setJSteps({ status: 'error', error: 'Journal ranking failed: ' + re.message });
+        setJSteps({ status: 'error', error: 'Ranking failed: ' + re.message });
         return;
       }
 
-      // Step 7: Override every AI-generated IF value with the verified OpenAlex figure
+      // Step 8: Override every AI IF value with verified OpenAlex data — AI never sets IF
       var enriched = (ranked.journals || []).map(function(j) {
         var match = journalPool.find(function(o) {
           return o.display_name && j.name &&
@@ -2770,13 +2766,13 @@ function App() {
           if_verified: verifiedIF !== null,
           homepage_url: (match && match.homepage_url) || null,
           openalex_url: match ? (match.id || '').replace('https://api.openalex.org/', 'https://openalex.org/') : null,
-          topic_overlap: match ? (match._topicOverlap || 0) : 0,
+          paper_count: match ? (match._paperCount || 0) : 0,
           journal_topics: match ? (match._topicNames || []) : [],
           if_filter_note: ifFilterNote || null,
         });
       });
 
-      setJSteps({ status: 'done', data: enriched, ifFilterNote: ifFilterNote, detectedTopics: detectedTopics });
+      setJSteps({ status: 'done', data: enriched, ifFilterNote: ifFilterNote, totalFound: sortedIds.length, searchAngles: queries });
 
     } catch(outerErr) {
       setJSteps({ status: 'error', error: outerErr.message });
@@ -3547,9 +3543,17 @@ function App() {
       )}
       {mode === 'journal' && journalSteps !== null && journalSteps.status === 'done' && (
         <StepCard num={1} title="Journal Recommendations" status="done">
-          {journalSteps.detectedTopics && journalSteps.detectedTopics.length > 0 && (
-            <div style={{ fontSize:'.78rem', background:'#f0f4ff', border:'1px solid #c5d0f5', borderRadius:'7px', padding:'.45rem .75rem', marginBottom:'.55rem', color:'#3a4a8a' }}>
-              <strong>Detected research topics:</strong> {journalSteps.detectedTopics.join(' · ')}
+          {journalSteps.searchAngles && journalSteps.searchAngles.length > 0 && (
+            <div style={{ fontSize:'.76rem', background:'#f5f2eb', border:'1px solid var(--border)', borderRadius:'7px', padding:'.45rem .75rem', marginBottom:'.5rem', color:'var(--muted)' }}>
+              <strong style={{ color:'var(--ink)' }}>Search angles:</strong>{' '}
+              {journalSteps.searchAngles.map(function(q, i) {
+                return <span key={i} style={{ display:'inline-block', background:'var(--card)', border:'1px solid var(--border)', borderRadius:'4px', padding:'.05rem .4rem', marginRight:'.3rem', marginTop:'.2rem', color:'var(--ink)' }}>{q}</span>;
+              })}
+            </div>
+          )}
+          {journalSteps.totalFound > 0 && (
+            <div style={{ fontSize:'.76rem', color:'var(--muted)', marginBottom:'.5rem' }}>
+              {journalSteps.totalFound} unique journals identified from publication history · top {(journalSteps.data || []).length} shown after ranking
             </div>
           )}
           {journalSteps.ifFilterNote && (
