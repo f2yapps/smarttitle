@@ -1279,31 +1279,26 @@ var IF_TIERS = [
   { key: 'standard', label: 'Standard  (IF < 2)',      range: 'IF < 2',    min: null, max: 1.99  },
 ];
 
-function promptJournal2(abstract, field, methodology, journalData, prefs, paperType) {
+function promptJournal2(abstract, field, methodology, journalData, prefs, ifFilterNote, paperType) {
   const rows = journalData.map(function(j, i) {
     const oa = j.is_oa === true ? 'open-access' : (j.is_oa === false ? 'subscription' : 'hybrid');
     const stats = j.summary_stats || {};
     const citedness = stats['2yr_mean_citedness'] != null ? stats['2yr_mean_citedness'] : null;
     const ifStr = citedness !== null ? citedness.toFixed(2) : 'N/A';
     const apc = j.apc_usd ? '$' + j.apc_usd : (j.apc_prices && j.apc_prices.length > 0 ? '$' + j.apc_prices[0].price : 'APC unknown');
-    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF~' + ifStr + ' | APC:' + apc + ' | ' + (j.host_organization_name || j.publisher || 'unknown publisher');
+    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF ' + ifStr + ' | APC:' + apc + ' | ' + (j.host_organization_name || j.publisher || 'unknown publisher');
   }).join('\n');
-
-  const tierDef = IF_TIERS.find(function(t) { return t.key === (prefs.ifTier || 'any'); }) || IF_TIERS[0];
-  var tierRules;
-  if (tierDef.key === 'any') {
-    tierRules = 'No IF filter — rank purely by topic fit, methodology alignment, and scope. Label each recommendation with its IF tier (High ≥10 / Strong 5–9.9 / Good 2–4.9 / Standard <2) so the author understands the prestige landscape.';
-  } else {
-    tierRules = 'MANDATORY IF FILTER: The author targets ' + tierDef.label + ' (' + tierDef.range + '). Only recommend journals whose IF falls within ' + tierDef.range + '. If a journal\'s IF is N/A in the list, include it ONLY if it is an established, well-known journal strongly associated with this tier. Exclude any journal outside this range — do not make exceptions.';
-  }
 
   const access = prefs.access && prefs.access !== 'any' ? prefs.access : 'no preference';
   const msType = paperType ? paperType.replace('-', ' ') : 'article';
-  const oaNote = prefs.oaMandate ? '\n⚠ FUNDER MANDATE: Only recommend open-access or hybrid journals — subscription-only journals are ineligible.' : '';
+  const oaNote = prefs.oaMandate ? '\n⚠ FUNDER MANDATE: Only recommend open-access or hybrid journals — ineligible to recommend subscription-only.' : '';
+  const filterCtx = ifFilterNote
+    ? '\nIF NOTE: ' + ifFilterNote + ' Your only task is ranking by fit — not filtering by IF.'
+    : '\nNo IF filter applied. Classify each journal\'s IF tier (High ≥10 / Strong 5–9.9 / Good 2–4.9 / Standard <2).';
 
   return {
-    system: 'You are a senior academic publication strategist with deep knowledge of journal scope, editorial expectations, and desk-rejection patterns. Be precise and realistic. Return only valid JSON, no markdown.',
-    user: `Recommend the 5 best-fit journals for this paper. Be strategic, not just prestigious.
+    system: 'You are a senior academic publication strategist. Rank journals by fit with THIS specific paper — topic match, methodology alignment, scope appropriateness. Be concrete and realistic. Return only valid JSON, no markdown.',
+    user: `Rank the 5 best-fit journals from the list below for this specific paper.
 
 ABSTRACT:
 """
@@ -1314,19 +1309,20 @@ FIELD: ${field}
 METHODOLOGY: ${methodology}
 MANUSCRIPT TYPE: ${msType}
 ACCESS PREFERENCE: ${access}${oaNote}
+${filterCtx}
 
-IF TIER FILTER:
-${tierRules}
-
-AVAILABLE JOURNALS (IF = 2-year mean citedness from OpenAlex):
+JOURNAL LIST (IF = 2-year mean citedness from OpenAlex — real data, do not alter these numbers):
 ${rows}
 
-For each recommended journal:
-- topic_fit (0–100): does the journal regularly publish papers on this exact topic?
-- method_fit (0–100): does the journal welcome this methodology (e.g. qualitative, RCT, computational)?
-- scope_fit (0–100): does the paper's claim scope (narrow/moderate/broad) match the journal's typical article breadth?
-- rejection_risk: realistic assessment of desk-rejection risk — consider IF vs. paper scope, methodology fit, and whether the journal has published similar work
-- why: 2–3 sentences explaining the recommendation; mention at least one specific reason this journal is a good fit for THIS paper specifically (not generic praise)
+Rules:
+- impact_factor: copy the IF value EXACTLY from the list above; use 0.0 if N/A
+- if_tier: classify as High (≥10) / Strong (5–9.9) / Good (2–4.9) / Standard (<2) / Unknown (N/A)
+- topic_fit (0–100): does this journal regularly publish papers on THIS specific topic?
+- method_fit (0–100): does this journal welcome THIS methodology type?
+- scope_fit (0–100): does the paper's claim breadth match what this journal typically publishes?
+- rejection_risk: low | medium | high
+- rejection_risk_note: ONE concrete sentence naming the specific desk-rejection risk for THIS paper at THIS journal
+- why: 2–3 sentences; name a SPECIFIC editorial reason this journal fits THIS paper
 
 Return JSON exactly:
 {
@@ -1343,7 +1339,7 @@ Return JSON exactly:
       "method_fit": 0,
       "scope_fit": 0,
       "rejection_risk": "low|medium|high",
-      "rejection_risk_note": "One sentence on the main desk-rejection risk, or 'Low risk if abstract matches scope'",
+      "rejection_risk_note": "",
       "why": ""
     }
   ]
@@ -1992,6 +1988,20 @@ function JournalCard({ item, rank }) {
           </p>
         )}
         {item.why && <p className="journal-why">{item.why}</p>}
+        <div style={{ marginTop:'.65rem', display:'flex', gap:'.6rem', flexWrap:'wrap' }}>
+          {item.homepage_url && (
+            <a href={item.homepage_url} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize:'.75rem', fontWeight:600, color:'var(--accent)', textDecoration:'none', padding:'.25rem .6rem', border:'1px solid var(--accent)', borderRadius:'6px', background:'var(--hi)' }}>
+              Visit Journal →
+            </a>
+          )}
+          {item.openalex_url && (
+            <a href={item.openalex_url} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize:'.75rem', color:'var(--muted)', textDecoration:'none', padding:'.25rem .6rem', border:'1px solid var(--border)', borderRadius:'6px' }}>
+              OpenAlex profile
+            </a>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -2591,7 +2601,7 @@ function App() {
 
   async function runJournals() {
     setJRunning(true);
-    setJSteps({ status: 'loading', msg: 'Analysing abstract field…' });
+    setJSteps({ status: 'loading', msg: 'Analysing abstract field and methodology…' });
 
     try {
       var p1 = promptJournal1(abstract);
@@ -2603,15 +2613,16 @@ function App() {
         return;
       }
 
-      setJSteps({ status: 'loading', msg: 'Searching journal databases (all terms in parallel)…' });
+      setJSteps({ status: 'loading', msg: 'Fetching journals from OpenAlex (3 queries in parallel)…' });
       var terms = fieldInfo.search_terms || [fieldInfo.field || 'academic research'];
 
-      // Fetch all search terms in parallel, then deduplicate by OpenAlex ID
       var batches = await Promise.all(
         terms.slice(0, 3).map(function(term) {
           return fetchJournals(term).catch(function() { return []; });
         })
       );
+
+      // Deduplicate by OpenAlex ID, keep full objects (including homepage_url)
       var seenIds = {};
       var allJournals = [];
       batches.forEach(function(batch) {
@@ -2620,7 +2631,6 @@ function App() {
           if (id && !seenIds[id]) { seenIds[id] = true; allJournals.push(j); }
         });
       });
-      // Sort by cited_by_count descending so AI sees best-known journals first
       allJournals.sort(function(a, b) { return (b.cited_by_count || 0) - (a.cited_by_count || 0); });
 
       if (allJournals.length === 0) {
@@ -2632,8 +2642,39 @@ function App() {
         }
       }
 
-      setJSteps({ status: 'loading', msg: 'Ranking journals for your paper…' });
-      var p2 = promptJournal2(abstract, fieldInfo.field || '', fieldInfo.methodology || '', allJournals, journalPrefs, paperType);
+      // ── GUARANTEED JS IF PRE-FILTER ──────────────────────────────────────────
+      // The AI must never be asked to enforce numeric thresholds — it is unreliable.
+      // We filter BEFORE the AI sees any journal. Only journals that pass the
+      // user's chosen IF tier are shown to the AI for ranking.
+      var tierDef = IF_TIERS.find(function(t) { return t.key === (journalPrefs.ifTier || 'any'); }) || IF_TIERS[0];
+      var ifFilterNote = '';
+      if (tierDef.key !== 'any') {
+        var withKnownIF = allJournals.filter(function(j) {
+          var ifVal = (j.summary_stats || {})['2yr_mean_citedness'];
+          if (ifVal == null) return false; // unknown IF excluded when a tier is selected
+          if (tierDef.min !== null && ifVal < tierDef.min) return false;
+          if (tierDef.max !== null && ifVal > tierDef.max) return false;
+          return true;
+        });
+        if (withKnownIF.length >= 3) {
+          allJournals = withKnownIF;
+          ifFilterNote = 'All ' + withKnownIF.length + ' journals below already have IF ' + tierDef.range + ' (verified from OpenAlex data — pre-filtered before you see this list).';
+        } else {
+          // Not enough journals with IF in range — relax to known-IF-only, inform user
+          var anyKnownIF = allJournals.filter(function(j) {
+            return (j.summary_stats || {})['2yr_mean_citedness'] != null;
+          });
+          if (anyKnownIF.length > 0) allJournals = anyKnownIF;
+          ifFilterNote = 'Fewer than 3 journals with confirmed IF in ' + tierDef.range + ' were found in OpenAlex for this field. Showing best available — some may be near the boundary. Consider broadening your IF tier.';
+        }
+      }
+      // ────────────────────────────────────────────────────────────────────────
+
+      // Keep the full OpenAlex objects for URL lookup after AI ranking
+      var journalPool = allJournals;
+
+      setJSteps({ status: 'loading', msg: 'Ranking journals by topic, method, and scope fit…' });
+      var p2 = promptJournal2(abstract, fieldInfo.field || '', fieldInfo.methodology || '', journalPool, journalPrefs, ifFilterNote, paperType);
       var ranked;
       try {
         ranked = await aiJson(p2.system, p2.user);
@@ -2642,7 +2683,22 @@ function App() {
         return;
       }
 
-      setJSteps({ status: 'done', data: ranked.journals || [] });
+      // Enrich AI output with real homepage_url and openalex_url from original data
+      var enriched = (ranked.journals || []).map(function(j) {
+        var match = journalPool.find(function(o) {
+          return o.display_name && j.name &&
+            o.display_name.toLowerCase().trim() === j.name.toLowerCase().trim();
+        });
+        var homepageUrl = (match && match.homepage_url) || null;
+        var openalexUrl = (match && match.id) ? match.id.replace('https://api.openalex.org/sources/', 'https://openalex.org/sources/') : null;
+        return Object.assign({}, j, {
+          homepage_url: homepageUrl,
+          openalex_url: openalexUrl,
+          if_filter_note: ifFilterNote || null,
+        });
+      });
+
+      setJSteps({ status: 'done', data: enriched, ifFilterNote: ifFilterNote });
     } catch(outerErr) {
       setJSteps({ status: 'error', error: outerErr.message });
     } finally {
@@ -2974,8 +3030,8 @@ function App() {
       <div className="mode-tabs" role="tablist">
         {[
           { key: 'title',        label: 'Title Recommender'   },
-          { key: 'journal',      label: 'Journal Suggester'   },
           { key: 'keywords',     label: 'Keywords Optimizer'  },
+          { key: 'journal',      label: 'Journal Suggester'   },
         ].map(function(m) {
           return (
             <button
@@ -3330,6 +3386,11 @@ function App() {
       )}
       {mode === 'journal' && journalSteps !== null && journalSteps.status === 'done' && (
         <StepCard num={1} title="Journal Recommendations" status="done">
+          {journalSteps.ifFilterNote && (
+            <div style={{ fontSize:'.78rem', background:'#e8f5e9', border:'1px solid #c3e6cb', borderRadius:'7px', padding:'.45rem .75rem', marginBottom:'.85rem', color:'#2d7a3a' }}>
+              ✓ IF filter applied: {journalSteps.ifFilterNote}
+            </div>
+          )}
           <div className="journal-list">
             {(journalSteps.data || []).map(function(j, i) {
               return <JournalCard key={i} item={j} rank={j.rank || i + 1} />;
