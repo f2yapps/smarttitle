@@ -2413,6 +2413,7 @@ function FullPaperReport({ fpResult, paperType }) {
 
 function App() {
   const [abstract, setAbstract]         = useState('');
+  const [abstractUploading, setAbstractUploading] = useState(false);
   const [running, setRunning]           = useState(false);
   const [steps, setSteps]               = useState({});
   const [mode, setMode]                 = useState('title');
@@ -2845,6 +2846,71 @@ function App() {
     }
   }
 
+  async function handleAbstractFile(file) {
+    if (!file) return;
+    var name = (file.name || '').toLowerCase();
+    setAbstractUploading(true);
+    try {
+      var rawText = '';
+
+      if (name.endsWith('.txt') || name.endsWith('.md')) {
+        rawText = await new Promise(function(resolve, reject) {
+          var reader = new FileReader();
+          reader.onload = function(e) { resolve(e.target.result || ''); };
+          reader.onerror = function() { reject(new Error('Could not read file.')); };
+          reader.readAsText(file);
+        });
+      } else if (name.endsWith('.pdf')) {
+        if (typeof pdfjsLib === 'undefined') {
+          alert('PDF library not loaded yet — please wait a moment and try again.');
+          return;
+        }
+        var buf = await file.arrayBuffer();
+        var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+        var pages = [];
+        for (var i = 1; i <= pdf.numPages; i++) {
+          var page = await pdf.getPage(i);
+          var content = await page.getTextContent();
+          pages.push(content.items.map(function(s) { return s.str; }).join(' '));
+        }
+        rawText = pages.join('\n');
+      } else if (name.endsWith('.docx')) {
+        if (typeof mammoth === 'undefined') {
+          alert('DOCX library not loaded yet — please wait a moment and try again.');
+          return;
+        }
+        var buf2 = await file.arrayBuffer();
+        var res = await mammoth.extractRawText({ arrayBuffer: buf2 });
+        rawText = res.value || '';
+      } else {
+        alert('Unsupported format. Supported: .pdf, .docx, .txt, .md');
+        return;
+      }
+
+      // Try to extract just the abstract section from a full paper
+      var extracted = '';
+      var absMatch = rawText.match(
+        /\bAbstract\b[\s\r\n:—–-]*([\s\S]{80,2000?})(?=\n\s*\n|\b(?:Introduction|Keywords|Background|1\.|1\s+Introduction)\b)/i
+      );
+      if (absMatch) {
+        extracted = absMatch[1].trim();
+      } else {
+        // No clear abstract section found — use the first 600 words as a best guess
+        var words = rawText.trim().split(/\s+/);
+        extracted = words.slice(0, 600).join(' ');
+        if (words.length > 600) {
+          extracted += '\n\n[Note: abstract section not detected — showing first 600 words. Please trim to your abstract only.]';
+        }
+      }
+
+      setAbstract(extracted.trim());
+    } catch(e) {
+      alert('Could not read file: ' + e.message);
+    } finally {
+      setAbstractUploading(false);
+    }
+  }
+
   async function handleFPFile(file) {
     if (!file) return;
     var name = (file.name || '').toLowerCase();
@@ -3193,7 +3259,24 @@ function App() {
       {/* ── Shared abstract textarea (title / journal / abstract / contribution / keywords) ── */}
       {(mode === 'title' || mode === 'journal' || mode === 'abstract' || mode === 'contribution' || mode === 'keywords') && (
         <div>
-          <label htmlFor="abstract" style={{ display:'block', fontWeight:600, marginBottom:'.45rem' }}>Abstract</label>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'.45rem', flexWrap:'wrap', gap:'.4rem' }}>
+            <label htmlFor="abstract" style={{ fontWeight:600 }}>Abstract</label>
+            <label style={{ cursor: abstractUploading ? 'default' : 'pointer', display:'inline-flex', alignItems:'center', gap:'.35rem', fontSize:'.75rem', fontWeight:600, color:'var(--accent)', border:'1px solid var(--accent)', background:'var(--hi)', borderRadius:'7px', padding:'.22rem .65rem', opacity: abstractUploading ? .6 : 1 }}>
+              {abstractUploading
+                ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span> Extracting…</>
+                : <>📄 Upload file</>}
+              <input
+                type="file"
+                accept=".pdf,.docx,.txt,.md"
+                style={{ display:'none' }}
+                disabled={abstractUploading}
+                onChange={function(e) { handleAbstractFile(e.target.files[0]); e.target.value = ''; }}
+              />
+            </label>
+          </div>
+          <div style={{ fontSize:'.7rem', color:'var(--muted)', marginBottom:'.4rem' }}>
+            Supports PDF, Word (.docx), .txt, .md — abstract section extracted automatically
+          </div>
           {wordCount > 0 && wordCount < 50 && (
             <div className="warn-box">⚠ Abstract may be too brief ({wordCount} words). Accuracy may vary.</div>
           )}
@@ -3201,8 +3284,8 @@ function App() {
             id="abstract"
             value={abstract}
             onChange={e => setAbstract(e.target.value)}
-            placeholder="Paste your academic abstract here…"
-            disabled={running || journalRunning || abstractRunning || contribRunning || kwRunning}
+            placeholder="Paste your abstract here, or upload a file above…"
+            disabled={running || journalRunning || abstractRunning || contribRunning || kwRunning || abstractUploading}
             aria-describedby="wc"
           />
           <div id="wc" className={`word-count${wordCount > 0 && wordCount < 50 ? ' warn' : ''}`}>
