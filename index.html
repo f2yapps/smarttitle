@@ -1954,8 +1954,11 @@ function JournalCard({ item, rank }) {
       <div className="journal-body">
         <div className="journal-meta" style={{ gridTemplateColumns:'repeat(4,1fr)' }}>
           <div className="jmeta">
-            <span className="jmeta-val">{item.impact_factor ? item.impact_factor.toFixed(1) : 'N/A'}</span>
-            <span className="jmeta-lbl">Impact Factor</span>
+            <span className="jmeta-val">
+              {item.impact_factor ? item.impact_factor.toFixed(2) : 'N/A'}
+              {item.if_verified && <span title="Verified from OpenAlex" style={{ fontSize:'.6rem', marginLeft:'.25rem', color:'#2d7a3a', fontWeight:700 }}>✓</span>}
+            </span>
+            <span className="jmeta-lbl">Impact Factor{item.if_verified ? ' (verified)' : ''}</span>
           </div>
           <div className="jmeta">
             <span className="jmeta-val">{item.apc_usd ? '$' + item.apc_usd.toLocaleString() : '—'}</span>
@@ -2643,38 +2646,32 @@ function App() {
         }
       }
 
-      // ── GUARANTEED JS IF PRE-FILTER ──────────────────────────────────────────
-      // The AI must never be asked to enforce numeric thresholds — it is unreliable.
-      // We filter BEFORE the AI sees any journal. Only journals that pass the
-      // user's chosen IF tier are shown to the AI for ranking.
+      // ── STRICT JS IF FILTER — no fallback to wrong-tier journals ────────────
       var tierDef = IF_TIERS.find(function(t) { return t.key === (journalPrefs.ifTier || 'any'); }) || IF_TIERS[0];
       var ifFilterNote = '';
       if (tierDef.key !== 'any') {
-        var withKnownIF = allJournals.filter(function(j) {
+        var filtered = allJournals.filter(function(j) {
           var ifVal = (j.summary_stats || {})['2yr_mean_citedness'];
-          if (ifVal == null) return false; // unknown IF excluded when a tier is selected
+          if (ifVal == null) return false;
           if (tierDef.min !== null && ifVal < tierDef.min) return false;
           if (tierDef.max !== null && ifVal > tierDef.max) return false;
           return true;
         });
-        if (withKnownIF.length >= 3) {
-          allJournals = withKnownIF;
-          ifFilterNote = 'All ' + withKnownIF.length + ' journals below already have IF ' + tierDef.range + ' (verified from OpenAlex data — pre-filtered before you see this list).';
-        } else {
-          // Not enough journals with IF in range — relax to known-IF-only, inform user
-          var anyKnownIF = allJournals.filter(function(j) {
-            return (j.summary_stats || {})['2yr_mean_citedness'] != null;
+        if (filtered.length === 0) {
+          setJSteps({
+            status: 'error',
+            error: 'No journals with a verified Impact Factor in ' + tierDef.range + ' were found in OpenAlex for this field. OpenAlex may not have IF data for niche journals in this area. Try selecting "Any IF" to see all available journals, then check their IF manually.'
           });
-          if (anyKnownIF.length > 0) allJournals = anyKnownIF;
-          ifFilterNote = 'Fewer than 3 journals with confirmed IF in ' + tierDef.range + ' were found in OpenAlex for this field. Showing best available — some may be near the boundary. Consider broadening your IF tier.';
+          return;
         }
+        allJournals = filtered;
+        ifFilterNote = filtered.length + ' journals with verified IF ' + tierDef.range + ' passed the filter (OpenAlex 2-year mean citedness). IF values on each card come directly from OpenAlex — not from AI.';
       }
       // ────────────────────────────────────────────────────────────────────────
 
-      // Keep the full OpenAlex objects for URL lookup after AI ranking
       var journalPool = allJournals;
 
-      setJSteps({ status: 'loading', msg: 'Ranking journals by topic, method, and scope fit…' });
+      setJSteps({ status: 'loading', msg: 'Ranking ' + journalPool.length + ' journals by topic, method, and scope fit…' });
       var p2 = promptJournal2(abstract, fieldInfo.field || '', fieldInfo.methodology || '', journalPool, journalPrefs, ifFilterNote, paperType);
       var ranked;
       try {
@@ -2684,15 +2681,26 @@ function App() {
         return;
       }
 
-      // Enrich AI output with real homepage_url and openalex_url from original data
+      // Enrich AI output: override impact_factor with verified OpenAlex value;
+      // add homepage_url and openalex_url from original data.
+      // The AI must never be the source of truth for numeric IF values.
       var enriched = (ranked.journals || []).map(function(j) {
+        // Fuzzy match: try exact, then partial
         var match = journalPool.find(function(o) {
           return o.display_name && j.name &&
             o.display_name.toLowerCase().trim() === j.name.toLowerCase().trim();
+        }) || journalPool.find(function(o) {
+          return o.display_name && j.name && (
+            o.display_name.toLowerCase().includes(j.name.toLowerCase()) ||
+            j.name.toLowerCase().includes(o.display_name.toLowerCase())
+          );
         });
+        var verifiedIF = match ? ((match.summary_stats || {})['2yr_mean_citedness'] || null) : null;
         var homepageUrl = (match && match.homepage_url) || null;
         var openalexUrl = (match && match.id) ? match.id.replace('https://api.openalex.org/sources/', 'https://openalex.org/sources/') : null;
         return Object.assign({}, j, {
+          impact_factor: verifiedIF !== null ? verifiedIF : j.impact_factor,
+          if_verified: verifiedIF !== null,
           homepage_url: homepageUrl,
           openalex_url: openalexUrl,
           if_filter_note: ifFilterNote || null,
