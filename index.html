@@ -3673,7 +3673,7 @@ function App() {
                 <button
                   className="btn-secondary"
                   style={{ fontSize:'.8rem', padding:'.3rem .8rem' }}
-                  onClick={function() { setMode('journal'); setJSteps(null); setTimeout(runJournals, 0); }}
+                  onClick={function() { setMode('journal'); setJSteps({ status: 'loading', msg: 'Preparing journal search…' }); setTimeout(runJournals, 0); }}
                   title="Use this title + abstract to find matching journals"
                 >→ Suggest Journals</button>
               </div>
@@ -3807,7 +3807,7 @@ function App() {
             <button
               className="btn-primary"
               style={{ fontSize:'.82rem' }}
-              onClick={function() { setMode('journal'); setJSteps(null); setTimeout(runJournals, 0); }}
+              onClick={function() { setMode('journal'); setJSteps({ status: 'loading', msg: 'Preparing journal search…' }); setTimeout(runJournals, 0); }}
               disabled={!abstract.trim()}
               title="Use these optimized keywords + abstract to find matching journals"
             >→ Find Matching Journals</button>
