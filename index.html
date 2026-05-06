@@ -2647,25 +2647,33 @@ function App() {
         return;
       }
 
-      // ── STEP 2: Resolve each concept to OpenAlex concept IDs ─────────────
-      // OpenAlex maintains a curated academic concept taxonomy with >65,000 concepts.
-      // Level 2-4 concepts are specific enough to identify a journal's scope.
+      // ── STEP 2: Resolve each concept to OpenAlex topic IDs ─────────────
+      // OpenAlex migrated from /concepts to /topics (T-format IDs).
+      // Topics are specific by definition — no level filter needed.
       setJSteps({ status: 'loading', msg: 'Mapping ' + concepts.length + ' research concepts to academic taxonomy…' });
+
+      function fetchTopicIds(term) {
+        return fetch(
+          'https://api.openalex.org/topics?search=' + encodeURIComponent(term) +
+          '&per-page=3&select=id,display_name&mailto=support@f2yapps.com'
+        )
+          .then(function(r){ return r.ok ? r.json() : { results: [] }; })
+          .then(function(d){ return (d.results || []).slice(0, 2).map(function(r){ return r.id.split('/').pop(); }); })
+          .catch(function(){ return []; });
+      }
 
       var conceptIdBatches = await Promise.all(
         concepts.map(function(c) {
-          return fetch(
-            'https://api.openalex.org/concepts?search=' + encodeURIComponent(c) +
-            '&per-page=3&select=id,display_name,level,works_count&mailto=support@f2yapps.com'
-          )
-            .then(function(r){ return r.ok ? r.json() : { results:[] }; })
-            .then(function(d){
-              return (d.results || [])
-                .filter(function(r){ return r.level >= 1 && r.level <= 4; })
-                .slice(0, 2)
-                .map(function(r){ return r.id.split('/').pop(); });
-            })
-            .catch(function(){ return []; });
+          return fetchTopicIds(c).then(function(ids) {
+            if (ids.length > 0) return ids;
+            // Fallback: OpenAlex topics requires close phrase match; try each word individually
+            var words = c.split(/\s+/).filter(function(w){ return w.length > 3; });
+            return Promise.all(words.map(fetchTopicIds)).then(function(batches) {
+              var merged = [];
+              batches.forEach(function(b){ b.forEach(function(id){ if (merged.indexOf(id) === -1) merged.push(id); }); });
+              return merged.slice(0, 2);
+            });
+          });
         })
       );
 
@@ -2676,50 +2684,63 @@ function App() {
         });
       });
 
-      if (conceptIds.length === 0) {
-        setJSteps({ status: 'error', error: 'Could not resolve research concepts to academic taxonomy IDs. Please try again.' });
-        return;
+      // ── STEP 3: Fetch specialist journals directly by topic IDs ──────────
+      // Query OpenAlex sources (journals) filtered by topic IDs.
+      // This returns journals whose editorial scope actually covers these topics —
+      // no papers needed as intermediary, no frequency-counting bias.
+      var rawJournals = [];
+
+      if (conceptIds.length > 0) {
+        setJSteps({ status: 'loading', msg: 'Finding specialist journals for ' + conceptIds.length + ' topic IDs…' });
+        var conceptFilter = conceptIds.slice(0, 12).join('|');
+        var sourcesRes = await fetch(
+          'https://api.openalex.org/sources' +
+          '?filter=type:journal,topics.id:' + conceptFilter +
+          '&sort=cited_by_count:desc&per-page=60' +
+          '&select=id,display_name,summary_stats,homepage_url,topics,is_oa,apc_usd,apc_prices,host_organization_name,works_count,cited_by_count' +
+          '&mailto=support@f2yapps.com'
+        );
+        if (!sourcesRes.ok) throw new Error('OpenAlex journal fetch failed: HTTP ' + sourcesRes.status);
+        rawJournals = (await sourcesRes.json()).results || [];
       }
 
-      // ── STEP 3: Fetch specialist journals directly by concept ─────────────
-      // Query OpenAlex sources (journals) filtered by concept IDs.
-      // This returns journals whose editorial scope actually covers these concepts —
-      // no papers needed as intermediary, no frequency-counting bias.
-      setJSteps({ status: 'loading', msg: 'Finding specialist journals for ' + conceptIds.length + ' concept IDs…' });
-
-      var conceptFilter = conceptIds.slice(0, 12).join('|');
-      var sourcesRes = await fetch(
-        'https://api.openalex.org/sources' +
-        '?filter=type:journal,x_concepts.id:' + conceptFilter +
-        '&sort=cited_by_count:desc&per-page=60' +
-        '&select=id,display_name,summary_stats,homepage_url,x_concepts,is_oa,apc_usd,apc_prices,host_organization_name,works_count,cited_by_count' +
-        '&mailto=support@f2yapps.com'
-      );
-      if (!sourcesRes.ok) throw new Error('OpenAlex journal fetch failed: HTTP ' + sourcesRes.status);
-      var rawJournals = (await sourcesRes.json()).results || [];
+      // Fallback: if topic-ID search returned nothing, search sources by concept text directly
+      if (rawJournals.length === 0) {
+        setJSteps({ status: 'loading', msg: 'Searching journals by research field…' });
+        var searchTerm = field || concepts[0] || '';
+        var fbRes = await fetch(
+          'https://api.openalex.org/sources' +
+          '?search=' + encodeURIComponent(searchTerm) +
+          '&filter=type:journal&sort=cited_by_count:desc&per-page=60' +
+          '&select=id,display_name,summary_stats,homepage_url,topics,is_oa,apc_usd,apc_prices,host_organization_name,works_count,cited_by_count' +
+          '&mailto=support@f2yapps.com'
+        );
+        if (fbRes.ok) rawJournals = (await fbRes.json()).results || [];
+        rawJournals.forEach(function(j){ j._fallback = true; });
+      }
 
       if (rawJournals.length === 0) {
         setJSteps({ status: 'error', error: 'No specialist journals found in OpenAlex for these research concepts. Try "Any IF" or rephrase your abstract.' });
         return;
       }
 
-      // ── STEP 4: Score journals by concept alignment ───────────────────────
-      // Count how many of our target concept IDs appear in the journal's
-      // x_concepts profile, weighted by concept score (higher = more specialized).
+      // ── STEP 4: Score journals by topic alignment ────────────────────────
+      // Count how many of our target topic IDs appear in the journal's
+      // topics profile, weighted by count (higher = more specialized).
       rawJournals.forEach(function(j){
         var matchCount = 0;
         var alignScore = 0;
-        (j.x_concepts || []).forEach(function(jc){
-          var jcId = jc.id.split('/').pop();
-          if (conceptIds.indexOf(jcId) !== -1) {
+        (j.topics || []).forEach(function(jt){
+          var jtId = jt.id.split('/').pop();
+          if (conceptIds.indexOf(jtId) !== -1) {
             matchCount++;
-            alignScore += (jc.score || 0);
+            alignScore += (jt.count || 1);
           }
         });
         j._matchCount  = matchCount;
         j._alignScore  = alignScore;
-        // Topic names for display (top 6 from journal's concept profile)
-        j._topicNames  = (j.x_concepts || []).slice(0, 6).map(function(c){ return c.display_name; });
+        // Topic names for display (top 6 from journal's topic profile)
+        j._topicNames  = (j.topics || []).slice(0, 6).map(function(t){ return t.display_name; });
       });
 
       // Primary sort: most concepts matched → highest alignment score → most cited overall
