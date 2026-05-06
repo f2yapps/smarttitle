@@ -107,6 +107,135 @@ a:hover { text-decoration: underline; }
 }
 .key-note { font-size: .75rem; color: var(--muted); margin-top: .5rem; font-style: italic; }
 
+/* Free Groq key banner */
+.groq-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .5rem;
+  background: var(--hi);
+  border: 1px solid rgba(196,84,26,.22);
+  border-radius: var(--r);
+  padding: .6rem 1rem;
+  margin-bottom: 1.25rem;
+  font-size: .82rem;
+}
+.groq-banner.active-key {
+  background: #edfaf0;
+  border-color: rgba(16,163,74,.3);
+}
+.groq-banner-text { color: var(--ink); line-height: 1.4; }
+.groq-banner-text strong { color: var(--accent); }
+.groq-banner.active-key .groq-banner-text strong { color: #0a7c38; }
+.groq-banner-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--r);
+  font-family: var(--sans);
+  font-size: .78rem;
+  padding: .32rem .85rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity .15s;
+}
+.groq-banner-btn:hover { opacity: .88; }
+.groq-banner-btn.ghost {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.groq-banner-btn.ghost:hover { color: var(--ink); border-color: var(--ink); }
+
+/* Free key panel */
+.groq-key-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 1.25rem 1.25rem 1rem;
+  margin-bottom: 1.5rem;
+  animation: fadeUp .2s ease;
+}
+.groq-key-panel h3 {
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  font-weight: 400;
+  margin: 0 0 .2rem;
+}
+.groq-key-panel .subtext {
+  font-size: .78rem;
+  color: var(--muted);
+  margin: 0 0 1rem;
+}
+.groq-key-row {
+  display: flex;
+  gap: .5rem;
+  align-items: stretch;
+}
+.groq-key-row input {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: .82rem;
+  padding: .45rem .65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: #fff;
+  color: var(--ink);
+  outline: none;
+}
+.groq-key-row input:focus { border-color: var(--accent); }
+.groq-steps-toggle {
+  background: none;
+  border: none;
+  font-family: var(--sans);
+  font-size: .78rem;
+  color: var(--accent);
+  cursor: pointer;
+  padding: .5rem 0 0;
+  display: inline-block;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+.groq-steps {
+  margin-top: .85rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: .85rem 1rem;
+  animation: fadeUp .15s ease;
+}
+.groq-steps h4 {
+  font-family: var(--mono);
+  font-size: .65rem;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--muted);
+  margin: 0 0 .65rem;
+}
+.groq-steps ol {
+  margin: 0;
+  padding: 0 0 0 1.1rem;
+  display: grid;
+  gap: .4rem;
+}
+.groq-steps ol li { font-size: .82rem; line-height: 1.5; }
+.groq-steps ol li a { color: var(--accent); }
+.groq-steps .free-badge {
+  display: inline-block;
+  background: #edfaf0;
+  color: #0a7c38;
+  border: 1px solid rgba(16,163,74,.25);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: .65rem;
+  padding: .07rem .35rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  vertical-align: middle;
+  margin-left: .3rem;
+}
+
 /* Model picker */
 .model-picker { display: grid; grid-template-columns: 1fr 1fr; gap: .65rem; }
 .model-group {}
@@ -805,6 +934,10 @@ const KEY_STEPS = {
 };
 
 const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
+const GROQ_FREE_MODEL = 'llama-3.3-70b-versatile';
+
+// Module-level slot so callAI (outside React) can read the user's key.
+window._groqKey = localStorage.getItem('titlesmart_groq_key') || null;
 
 function modelProvider(modelId) {
   const m = MODELS.find(function(x) { return x.id === modelId; });
@@ -815,8 +948,34 @@ function modelProvider(modelId) {
    MULTI-PROVIDER AI CALLER
    ───────────────────────────────────────────────────────────── */
 
-// Calls the server-side /api/chat proxy (Groq Llama 3.3 70B, key stays on server).
+// When the user has provided their own Groq key, call Groq directly (CORS supported).
+// Otherwise falls back to the server-side /api/chat proxy.
 async function callAI(system, user) {
+  if (window._groqKey) {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + window._groqKey,
+      },
+      body: JSON.stringify({
+        model: GROQ_FREE_MODEL,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user',   content: user   },
+        ],
+      }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(function() { return {}; });
+      const msg = (d.error && d.error.message) || ('Groq error ' + res.status);
+      throw new Error(msg);
+    }
+    const d = await res.json();
+    return d.choices[0].message.content;
+  }
+
+  // Server-side proxy (shared key, Groq Llama 3.3 70B).
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -2483,6 +2642,28 @@ function App() {
   const [fullPaperRunning, setFPRunning]= useState(false);
   const [fpDragOver, setFpDragOver]     = useState(false);
 
+  // Free Groq key
+  const [groqKey, setGroqKey]           = useState(window._groqKey || '');
+  const [groqKeyInput, setGroqKeyInput] = useState(window._groqKey || '');
+  const [showKeyPanel, setShowKeyPanel] = useState(!window._groqKey);
+  const [showSteps, setShowSteps]       = useState(false);
+
+  function saveGroqKey() {
+    const k = groqKeyInput.trim();
+    window._groqKey = k || null;
+    if (k) { localStorage.setItem('titlesmart_groq_key', k); } else { localStorage.removeItem('titlesmart_groq_key'); }
+    setGroqKey(k);
+    if (k) setShowKeyPanel(false);
+  }
+
+  function clearGroqKey() {
+    window._groqKey = null;
+    localStorage.removeItem('titlesmart_groq_key');
+    setGroqKey('');
+    setGroqKeyInput('');
+    setShowKeyPanel(true);
+  }
+
   const endRef = useRef(null);
 
   // Reset chapterType when paper type changes to a type with a different chapter set.
@@ -3062,6 +3243,65 @@ function App() {
         <h1>Title<em>Smart</em></h1>
         <p className="tagline">Built on actual academic databases - not the same as asking a chatbot to make something up.</p>
       </header>
+
+      {/* ── Free Groq key banner ── */}
+      {!showKeyPanel && (
+        <div className={'groq-banner' + (groqKey ? ' active-key' : '')}>
+          <span className="groq-banner-text">
+            {groqKey
+              ? <><strong>Your free Groq key is active.</strong> All AI calls use your own key.</>
+              : <><strong>Using shared server key.</strong> Add your own free Groq key for unlimited, unthrottled access.</>}
+          </span>
+          <div style={{ display:'flex', gap:'.5rem' }}>
+            {groqKey && <button className="groq-banner-btn ghost" onClick={clearGroqKey}>Remove key</button>}
+            <button className="groq-banner-btn" onClick={function(){ setShowKeyPanel(true); setShowSteps(false); }}>
+              {groqKey ? 'Change key' : 'Add free key'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Free key panel ── */}
+      {showKeyPanel && (
+        <div className="groq-key-panel">
+          <h3>Use your own free Llama key</h3>
+          <p className="subtext">
+            Groq offers free API access to Llama 3.3 70B - the same model TitleSmart uses.
+            Your key is stored in your browser only and never sent to our server.
+          </p>
+          <div className="groq-key-row">
+            <input
+              type="password"
+              placeholder="Paste your Groq key here (starts with gsk_)"
+              value={groqKeyInput}
+              onChange={function(e){ setGroqKeyInput(e.target.value); }}
+              onKeyDown={function(e){ if (e.key === 'Enter') saveGroqKey(); }}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button className="groq-banner-btn" onClick={saveGroqKey} disabled={!groqKeyInput.trim()}>Save key</button>
+            {groqKey && (
+              <button className="groq-banner-btn ghost" onClick={function(){ setShowKeyPanel(false); }}>Cancel</button>
+            )}
+          </div>
+          <button className="groq-steps-toggle" onClick={function(){ setShowSteps(function(v){ return !v; }); }}>
+            {showSteps ? 'Hide instructions' : 'How to get a free key (takes 2 minutes)'}
+          </button>
+          {showSteps && (
+            <div className="groq-steps">
+              <h4>Get a free Groq API key <span className="free-badge">Free</span></h4>
+              <ol>
+                <li>Go to <a href="https://console.groq.com" target="_blank" rel="noopener noreferrer">console.groq.com</a></li>
+                <li>Sign up or log in - <strong>no credit card needed</strong>, free tier available</li>
+                <li>Click <strong>API Keys</strong> in the left sidebar</li>
+                <li>Click <strong>Create API Key</strong> and give it any name (e.g. "TitleSmart")</li>
+                <li>Copy the key - it starts with <code style={{fontFamily:'var(--mono)',fontSize:'.8em'}}>gsk_</code></li>
+                <li>Paste it in the field above and click <strong>Save key</strong></li>
+              </ol>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Paper type bar ── */}
       <div className="paper-type-bar">
