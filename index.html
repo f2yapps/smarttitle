@@ -2637,10 +2637,10 @@ function App() {
       // It does not need a pre-filtered candidate list — it generates one.
       var suggested = await aiJson(
         'You are a senior academic editor with comprehensive knowledge of journal aims and scope across all disciplines. Return only valid JSON, no markdown.',
-        'Suggest the 10 best journals for this paper based on scope fit.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nMANUSCRIPT TYPE: ' + msType + '\nIF PREFERENCE: ' + ifInstr + '\nACCESS: ' + accessInstr + mandateNote + '\n\nPrioritise journals whose aims and scope directly match the paper\'s topic — include well-known specialist journals even if they have a lower IF than the preference, if they are the clear best fit. Do not pad with general journals.\n\nReturn JSON exactly:\n{"journals":[{"rank":1,"name":"exact official journal name","publisher":"publisher name","access_type":"open-access|subscription|hybrid","estimated_if":3.5,"if_tier":"High|Strong|Good|Standard|Unknown","topic_fit":92,"method_fit":85,"scope_fit":90,"rejection_risk":"low|medium|high","rejection_risk_note":"One sentence on the most likely desk-rejection reason for this paper at this journal.","why":"2–3 sentences on why this journal\'s scope matches this paper."}]}'
+        'Suggest the 15 best journals for this paper based on scope fit.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nMANUSCRIPT TYPE: ' + msType + '\nIF PREFERENCE: ' + ifInstr + '\nACCESS: ' + accessInstr + mandateNote + '\n\nPrioritise journals whose aims and scope directly match the paper\'s topic — include well-known specialist journals even if they have a lower IF than the preference, if they are the clear best fit. Do not pad with general journals.\n\nReturn JSON exactly:\n{"journals":[{"rank":1,"name":"exact official journal name","publisher":"publisher name","access_type":"open-access|subscription|hybrid","estimated_if":3.5,"if_tier":"High|Strong|Good|Standard|Unknown","topic_fit":92,"method_fit":85,"scope_fit":90,"rejection_risk":"low|medium|high","rejection_risk_note":"One sentence on the most likely desk-rejection reason for this paper at this journal.","why":"2–3 sentences on why this journal\'s scope matches this paper."}]}'
       );
 
-      var aiJournals = (suggested.journals || []).slice(0, 10);
+      var aiJournals = (suggested.journals || []).slice(0, 15);
       if (aiJournals.length === 0) throw new Error('AI returned no journal suggestions. Please try again.');
 
       // ── STEP 2: Verify IF and OA status from OpenAlex ────────────────────
@@ -2676,26 +2676,40 @@ function App() {
       );
 
       // ── STEP 3: Apply IF tier filter using verified IF ────────────────────
+      var filterNote = null;
+      var display = enriched;
+
       if (tierDef.key !== 'any') {
-        var filtered = enriched.filter(function(j){
+        var ifFiltered = enriched.filter(function(j){
           var ifVal = j.impact_factor;
-          if (ifVal == null) return true;
+          if (ifVal == null) return true; // unverified — keep
           if (tierDef.min !== null && ifVal < tierDef.min) return false;
           if (tierDef.max !== null && ifVal > tierDef.max) return false;
           return true;
         });
-        if (filtered.length > 0) enriched = filtered;
+        if (ifFiltered.length > 0) {
+          display = ifFiltered;
+          filterNote = 'IF filter: ' + tierDef.range;
+        } else {
+          // No journals matched the IF range — show best scope matches anyway
+          display = enriched;
+          filterNote = 'No verified matches for IF ' + tierDef.range + ' — showing closest scope matches';
+        }
       }
 
       if (journalPrefs.access === 'oa') {
-        var oaOnly = enriched.filter(function(j){ return j.access_type === 'open-access'; });
-        if (oaOnly.length > 0) enriched = oaOnly;
+        var oaOnly = display.filter(function(j){ return j.access_type === 'open-access'; });
+        if (oaOnly.length > 0) {
+          display = oaOnly;
+        } else {
+          filterNote = (filterNote ? filterNote + '; ' : '') + 'No OA matches found — showing all access types';
+        }
       }
 
       setJSteps({
         status: 'done',
-        data: enriched.slice(0, 5),
-        ifFilterNote: tierDef.key !== 'any' ? 'IF filter: ' + tierDef.range : null,
+        data: display.slice(0, 5),
+        ifFilterNote: filterNote,
         totalFound: aiJournals.length,
         searchAngles: [],
       });
