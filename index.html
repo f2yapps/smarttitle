@@ -829,7 +829,9 @@ if (typeof pdfjsLib !== 'undefined') {
 
 const { useState, useEffect, useRef, useCallback } = React;
 
-const S2_BASE = 'https://api.semanticscholar.org/graph/v1';
+const S2_BASE      = 'https://api.semanticscholar.org/graph/v1';
+const OA_BASE      = 'https://api.openalex.org';
+const OA_MAILTO    = 'support@f2yapps.com';
 
 /* Model registry - add or remove entries here to customise */
 const MODELS = [
@@ -989,19 +991,15 @@ async function aiJson(system, user) {
   }
 }
 
-// Searches Semantic Scholar and returns papers sorted by citation count.
-async function fetchPapers(query, broad) {
-  var q = broad ? query.split(/\s+/).slice(0, 4).join(' ') : query;
-  var url = S2_BASE + '/paper/search?query=' + encodeURIComponent(q) + '&fields=title,citationCount,year,venue&limit=50';
+// Fetch papers from Semantic Scholar. Returns [] on any error (caller decides fallback).
+async function _fetchS2(query) {
+  var url = S2_BASE + '/paper/search?query=' + encodeURIComponent(query) + '&fields=title,citationCount,year,venue&limit=50';
   var controller = new AbortController();
-  var timer = setTimeout(function() { controller.abort(); }, 14000);
+  var timer = setTimeout(function() { controller.abort(); }, 12000);
   try {
     var res = await fetch(url, { signal: controller.signal });
     clearTimeout(timer);
-    if (!res.ok) {
-      var hint = res.status === 429 ? ' (rate-limited - wait a moment and retry)' : '';
-      throw new Error('Semantic Scholar ' + res.status + hint);
-    }
+    if (!res.ok) throw new Error('S2 ' + res.status);
     var data = await res.json();
     return (data.data || [])
       .filter(function(p) { return p.title && p.citationCount != null; })
@@ -1009,9 +1007,49 @@ async function fetchPapers(query, broad) {
       .slice(0, 20);
   } catch(e) {
     clearTimeout(timer);
-    if (e.name === 'AbortError') throw new Error('Semantic Scholar timed out (14 s)');
-    throw e;
+    return [];   // always swallow — OpenAlex fallback handles it
   }
+}
+
+// Fetch papers from OpenAlex (free, no key, CORS-enabled, 250M+ works).
+async function _fetchOA(query) {
+  var url = OA_BASE + '/works?search=' + encodeURIComponent(query) +
+    '&filter=type:article' +
+    '&sort=cited_by_count:desc' +
+    '&per-page=20' +
+    '&select=title,cited_by_count,publication_year,primary_location' +
+    '&mailto=' + OA_MAILTO;
+  var controller = new AbortController();
+  var timer = setTimeout(function() { controller.abort(); }, 12000);
+  try {
+    var res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error('OpenAlex ' + res.status);
+    var data = await res.json();
+    return (data.results || [])
+      .filter(function(p) { return p.title; })
+      .map(function(p) {
+        return {
+          title:         p.title,
+          citationCount: p.cited_by_count || 0,
+          year:          p.publication_year || null,
+          venue:         (p.primary_location && p.primary_location.source && p.primary_location.source.display_name) || '',
+        };
+      });
+  } catch(e) {
+    clearTimeout(timer);
+    throw new Error('Literature search unavailable (S2 rate-limited, OpenAlex timed out)');
+  }
+}
+
+// Searches papers — tries Semantic Scholar first, falls back to OpenAlex on failure/empty.
+async function fetchPapers(query, broad) {
+  var q = broad ? query.split(/\s+/).slice(0, 4).join(' ') : query;
+  var results = await _fetchS2(q);
+  if (results.length === 0) {
+    results = await _fetchOA(q);   // OpenAlex fallback
+  }
+  return results;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -2753,9 +2791,8 @@ function App() {
         }
       } catch (fetchErr) {
         var s2msg = fetchErr.message || '';
-        var s2hint = s2msg.includes('429') ? ' (Semantic Scholar rate-limited)'
-          : s2msg.includes('timeout') ? ' (Semantic Scholar timed out)'
-          : ' (Semantic Scholar temporarily unavailable)';
+        var s2hint = s2msg.includes('timed out') ? ' (connection timed out)'
+          : ' (temporarily unavailable)';
         setStep(2, { status: 'warn', error: 'Literature search skipped' + s2hint + '. Titles will be generated from abstract only - accuracy may be reduced.' });
       }
 
