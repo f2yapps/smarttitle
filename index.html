@@ -2584,7 +2584,7 @@ function ErrorBox({ msg, onAddKey, hasKey }) {
   var rl = _isRateLimitMsg(msg);
   return (
     <div>
-      <ErrorBox msg={msg} onAddKey={openKeyPanel} hasKey={!!groqKey} />
+      <div className="error-box">{msg}</div>
       {rl && !hasKey && (
         <div className="error-key-hint">
           <span>You can use your own <strong>free Groq API key</strong> to avoid this limit - no credit card needed.</span>
