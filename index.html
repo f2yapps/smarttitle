@@ -1995,29 +1995,44 @@ function JournalCard({ item, rank }) {
           </p>
         )}
         {item.why && <p className="journal-why">{item.why}</p>}
-        {item.journal_topics && item.journal_topics.length > 0 && (
-          <div style={{ marginTop:'.6rem', display:'flex', flexWrap:'wrap', gap:'.3rem', alignItems:'center' }}>
-            <span style={{ fontSize:'.62rem', color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em', marginRight:'.15rem' }}>Covers:</span>
-            {item.journal_topics.slice(0, 5).map(function(t, i) {
-              return (
-                <span key={i} style={{ fontSize:'.68rem', background:'var(--bg)', border:'1px solid var(--border)', borderRadius:'4px', padding:'.1rem .45rem', color:'var(--ink)' }}>
-                  {t}
-                </span>
-              );
+        {item.rationale && !item.why && <p className="journal-why">{item.rationale}</p>}
+
+        {/* Score bar */}
+        {item.score != null && (
+          <div style={{ margin:'.6rem 0 .3rem' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:'.7rem', color:'var(--muted)', marginBottom:'.2rem' }}>
+              <span>Scope match</span>
+              <span style={{ fontWeight:700, color: item.score >= 0.75 ? '#2d7a3a' : item.score >= 0.5 ? '#b07a2a' : '#7a3a2d' }}>{Math.round(item.score * 100)}%</span>
+            </div>
+            <div style={{ height:'6px', borderRadius:'4px', background:'var(--border)', overflow:'hidden' }}>
+              <div style={{ height:'100%', borderRadius:'4px', width: Math.round(item.score * 100) + '%', background: item.score >= 0.75 ? 'var(--accent)' : item.score >= 0.5 ? '#e8a87c' : '#c9bfb3', transition:'width .4s' }} />
+            </div>
+          </div>
+        )}
+
+        {/* Fit tags */}
+        {item.fit_tags && item.fit_tags.length > 0 && (
+          <div style={{ display:'flex', flexWrap:'wrap', gap:'.3rem', margin:'.4rem 0' }}>
+            {item.fit_tags.map(function(t, i) {
+              return <span key={i} style={{ fontSize:'.67rem', background:'#e8f5e9', border:'1px solid #c3e6cb', borderRadius:'12px', padding:'.1rem .5rem', color:'#1a5c2a', fontWeight:600 }}>{t}</span>;
             })}
           </div>
         )}
+
         <div style={{ marginTop:'.65rem', display:'flex', gap:'.6rem', flexWrap:'wrap' }}>
-          {item.homepage_url && (
-            <a href={item.homepage_url} target="_blank" rel="noopener noreferrer"
-              style={{ fontSize:'.75rem', fontWeight:600, color:'var(--accent)', textDecoration:'none', padding:'.25rem .6rem', border:'1px solid var(--accent)', borderRadius:'6px', background:'var(--hi)' }}>
-              Visit Journal →
+          {(item.submission_url || item.homepage_url) && (
+            <a href={item.submission_url || item.homepage_url} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize:'.75rem', fontWeight:700, color:'#fff', textDecoration:'none', padding:'.28rem .75rem', borderRadius:'6px', background:'var(--accent)' }}>
+              Submit here →
             </a>
+          )}
+          {item.open_access && (
+            <span style={{ fontSize:'.72rem', fontWeight:700, color:'#1a5c2a', background:'#e8f5e9', border:'1px solid #c3e6cb', borderRadius:'6px', padding:'.2rem .55rem' }}>⊕ Open Access</span>
           )}
           {item.openalex_url && (
             <a href={item.openalex_url} target="_blank" rel="noopener noreferrer"
-              style={{ fontSize:'.75rem', color:'var(--muted)', textDecoration:'none', padding:'.25rem .6rem', border:'1px solid var(--border)', borderRadius:'6px' }}>
-              OpenAlex profile
+              style={{ fontSize:'.72rem', color:'var(--muted)', textDecoration:'none', padding:'.2rem .55rem', border:'1px solid var(--border)', borderRadius:'6px' }}>
+              OpenAlex
             </a>
           )}
         </div>
@@ -2621,108 +2636,58 @@ function App() {
 
   async function runJournals() {
     setJRunning(true);
-    setJSteps({ status: 'loading', msg: 'AI selecting best-fit journals…' });
+    setJSteps({ status: 'loading', msg: 'Loading journal database…' });
 
     try {
       var tierDef = IF_TIERS.find(function(t){ return t.key === (journalPrefs.ifTier || 'any'); }) || IF_TIERS[0];
-      var ifInstr = tierDef.key === 'any'
-        ? 'No IF preference — prioritise scope fit.'
-        : 'Author wants journals with IF ' + tierDef.range + '. Suggest journals in this range; include 1–2 just outside only if they are clearly the best scope fit.';
-      var accessInstr = journalPrefs.access === 'oa' ? 'Open-access journals only.' : 'No access restriction.';
-      var mandateNote = journalPrefs.oaMandate ? '\n⚠ FUNDER MANDATE: Do not suggest subscription-only journals.' : '';
-      var msType = paperType ? paperType.replace('-', ' ') : 'research article';
 
-      // Build combined manuscript context: title + keywords + abstract
-      // (title ×3 weight, keywords ×2 weight — mirroring combine_fields NLP heuristic)
-      var recTitle = (steps[5] && steps[5].winnerTitle) || '';
+      // Collect manuscript signals: title + optimized keywords + abstract
+      var recTitle    = (steps[5] && steps[5].winnerTitle) || '';
       var suggestedKws = ((kwResult && kwResult.data && kwResult.data.suggested) || []).map(function(k){ return k.keyword; });
-      var keptKws = ((kwResult && kwResult.data && kwResult.data.keywords) || [])
+      var keptKws     = ((kwResult && kwResult.data && kwResult.data.keywords) || [])
         .filter(function(k){ return k.action === 'keep' || k.action === 'refine'; })
         .map(function(k){ return k.keyword; });
-      var allKws = suggestedKws.concat(keptKws).filter(function(k, i, a){ return a.indexOf(k) === i; });
+      var allKws      = suggestedKws.concat(keptKws).filter(function(k, i, a){ return a.indexOf(k) === i; });
 
-      var manuscriptCtx = '';
-      if (recTitle) manuscriptCtx += 'TITLE: ' + recTitle + '\n';
-      if (allKws.length > 0) manuscriptCtx += 'KEYWORDS: ' + allKws.join(', ') + '\n';
-      manuscriptCtx += 'ABSTRACT:\n"""\n' + abstract + '\n"""';
+      var manuscript  = { title: recTitle, abstract: abstract, keywords: allKws };
+      var prefs       = { tierDef: tierDef, access: journalPrefs.access, oaMandate: journalPrefs.oaMandate, paperType: paperType };
 
-      // ── STEP 1: AI picks journals directly from its training knowledge ────
-      var suggested = await aiJson(
-        'You are a senior academic editor with comprehensive knowledge of journal aims and scope across all disciplines. Return only valid JSON, no markdown.',
-        'Suggest the 15 best journals for this paper based on scope fit.\n\n' + manuscriptCtx + '\n\nMANUSCRIPT TYPE: ' + msType + '\nIF PREFERENCE: ' + ifInstr + '\nACCESS: ' + accessInstr + mandateNote + '\n\nPrioritise journals whose aims and scope directly match the paper\'s topic — include well-known specialist journals even if they have a lower IF than the preference, if they are the clear best fit. Do not pad with general journals.\n\nReturn JSON exactly:\n{"journals":[{"rank":1,"name":"exact official journal name","publisher":"publisher name","access_type":"open-access|subscription|hybrid","estimated_if":3.5,"if_tier":"High|Strong|Good|Standard|Unknown","topic_fit":92,"method_fit":85,"scope_fit":90,"rejection_risk":"low|medium|high","rejection_risk_note":"One sentence on the most likely desk-rejection reason for this paper at this journal.","why":"2–3 sentences on why this journal\'s scope matches this paper."}]}'
-      );
+      // ── STEP 1: keyword pre-filter from curated DB ────────────────────────
+      setJSteps({ status: 'loading', msg: 'Matching manuscript to journal database…' });
 
-      var aiJournals = (suggested.journals || []).slice(0, 15);
-      if (aiJournals.length === 0) throw new Error('AI returned no journal suggestions. Please try again.');
+      // ── STEP 2: AI ranks subset by scope, STEP 3: OpenAlex verifies IF ───
+      setJSteps({ status: 'loading', msg: 'AI scope-matching against curated journals…' });
+      var enriched = await JournalRecommender.recommend(manuscript, prefs);
 
-      // ── STEP 2: Verify IF and OA status from OpenAlex ────────────────────
-      // AI knows scope; OpenAlex provides current verified IF and metadata.
-      setJSteps({ status: 'loading', msg: 'Verifying impact factors from OpenAlex…' });
-      var enriched = await Promise.all(
-        aiJournals.map(function(j) {
-          return fetch(
-            'https://api.openalex.org/sources?search=' + encodeURIComponent(j.name) +
-            '&filter=type:journal&per-page=1' +
-            '&select=id,display_name,summary_stats,homepage_url,is_oa,apc_usd,apc_prices,host_organization_name' +
-            '&mailto=support@f2yapps.com'
-          )
-            .then(function(r){ return r.ok ? r.json() : { results: [] }; })
-            .then(function(d){
-              var hit = (d.results || [])[0];
-              if (!hit) return Object.assign({}, j, { impact_factor: j.estimated_if, if_verified: false });
-              var verIF = (hit.summary_stats || {})['2yr_mean_citedness'];
-              var apc = hit.apc_usd ? '$' + hit.apc_usd
-                      : (hit.apc_prices && hit.apc_prices.length ? '$' + hit.apc_prices[0].price : null);
-              return Object.assign({}, j, {
-                impact_factor: verIF != null ? verIF : j.estimated_if,
-                if_verified:   verIF != null,
-                access_type:   hit.is_oa === true ? 'open-access' : (hit.is_oa === false ? 'subscription' : j.access_type),
-                apc:           apc,
-                publisher:     hit.host_organization_name || j.publisher,
-                homepage_url:  hit.homepage_url || null,
-                openalex_url:  hit.id ? hit.id.replace('https://api.openalex.org/', 'https://openalex.org/') : null,
-              });
-            })
-            .catch(function(){ return Object.assign({}, j, { impact_factor: j.estimated_if, if_verified: false }); });
-        })
-      );
-
-      // ── STEP 3: Apply IF tier filter using verified IF ────────────────────
+      // ── STEP 4: Apply IF tier filter ──────────────────────────────────────
       var filterNote = null;
-      var display = enriched;
+      var display    = enriched;
 
       if (tierDef.key !== 'any') {
         var ifFiltered = enriched.filter(function(j){
           var ifVal = j.impact_factor;
-          if (ifVal == null) return true; // unverified — keep
+          if (ifVal == null) return true;
           if (tierDef.min !== null && ifVal < tierDef.min) return false;
           if (tierDef.max !== null && ifVal > tierDef.max) return false;
           return true;
         });
-        if (ifFiltered.length > 0) {
-          display = ifFiltered;
-          filterNote = 'IF filter: ' + tierDef.range;
-        } else {
-          // No journals matched the IF range — show best scope matches anyway
-          display = enriched;
-          filterNote = 'No verified matches for IF ' + tierDef.range + ' — showing closest scope matches';
-        }
+        display    = ifFiltered.length > 0 ? ifFiltered : enriched;
+        filterNote = ifFiltered.length > 0
+          ? 'IF filter: ' + tierDef.range
+          : 'No verified matches for IF ' + tierDef.range + ' — showing closest scope matches';
       }
 
-      if (journalPrefs.access === 'oa') {
-        var oaOnly = display.filter(function(j){ return j.access_type === 'open-access'; });
-        if (oaOnly.length > 0) {
-          display = oaOnly;
-        } else {
-          filterNote = (filterNote ? filterNote + '; ' : '') + 'No OA matches found — showing all access types';
-        }
+      if (journalPrefs.access === 'open-access' || journalPrefs.access === 'oa') {
+        var oaOnly = display.filter(function(j){ return j.open_access || j.access_type === 'open-access'; });
+        if (oaOnly.length > 0) display = oaOnly;
+        else filterNote = (filterNote ? filterNote + '; ' : '') + 'No OA matches — showing all access types';
       }
 
       setJSteps({
-        status: 'done',
-        data: display.slice(0, 5),
+        status:      'done',
+        data:        display.slice(0, 5),
         ifFilterNote: filterNote,
-        totalFound: aiJournals.length,
+        totalFound:  enriched.length,
         searchAngles: [],
       });
 
@@ -3688,5 +3653,6 @@ function App() {
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<App />);
 </script>
+<script src="js/journal-recommender.js"></script>
 </body>
 </html>
