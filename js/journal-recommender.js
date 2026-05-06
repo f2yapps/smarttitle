@@ -101,36 +101,53 @@ const JournalRecommender = (function () {
     return { system, user };
   }
 
-  // ── 4. Call backend AI proxy ──────────────────────────────────────────────
+  // ── 4. Call AI (user's Groq key if set, otherwise backend proxy) ─────────
   async function callAIProxy(system, user) {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ system, user }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(function() { return {}; });
-      throw new Error(err.error || 'AI request failed (' + res.status + ')');
+    const groqKey = (typeof window !== 'undefined' && window._groqKey) || null;
+
+    async function fetchOnce(sys, usr) {
+      if (groqKey) {
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + groqKey },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            messages: [{ role: 'system', content: sys }, { role: 'user', content: usr }],
+          }),
+        });
+        if (!res.ok) {
+          const e = await res.json().catch(function() { return {}; });
+          throw new Error((e.error && e.error.message) || 'Groq error ' + res.status);
+        }
+        const d = await res.json();
+        return (d.choices[0].message.content) || '';
+      }
+      // Server proxy fallback
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ system: sys, user: usr }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(function() { return {}; });
+        throw new Error(err.error || 'AI request failed (' + res.status + ')');
+      }
+      const data = await res.json();
+      return data.text || '';
     }
-    const data = await res.json();
-    const text = data.text || '';
-    // Strip markdown fences if LLM adds them
+
+    const text  = await fetchOnce(system, user);
     const clean = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
     try {
       return JSON.parse(clean);
     } catch(_) {
-      // Retry: ask AI to fix its JSON
-      const retry = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system,
-          user: user + '\n\nIMPORTANT: Return ONLY valid JSON. No markdown. No code fences.',
-        }),
-      });
-      const d2 = await retry.json();
-      const t2 = (d2.text || '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-      return JSON.parse(t2);
+      // Retry with explicit JSON instruction
+      const t2 = await fetchOnce(
+        system,
+        user + '\n\nIMPORTANT: Return ONLY valid JSON. No markdown. No code fences.'
+      );
+      const c2 = t2.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      return JSON.parse(c2);
     }
   }
 
