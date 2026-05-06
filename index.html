@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>TitleSmart — Academic Title Recommender</title>
+<title>TitleSmart - Academic Title Recommender</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
@@ -729,7 +729,7 @@ if (typeof pdfjsLib !== 'undefined') {
 </script>
 <script type="text/babel" data-presets="react,env">
 /* =============================================================
-   TitleSmart — Academic Title Recommender
+   TitleSmart - Academic Title Recommender
    Multi-model: Groq/Meta (default), Claude, GPT-4o, Gemini
    ============================================================= */
 
@@ -737,7 +737,7 @@ const { useState, useEffect, useRef, useCallback } = React;
 
 const S2_BASE = 'https://api.semanticscholar.org/graph/v1';
 
-/* Model registry — add or remove entries here to customise */
+/* Model registry - add or remove entries here to customise */
 const MODELS = [
   { id: 'llama-3.3-70b-versatile',    label: 'Llama 3.3 70B',    provider: 'groq',   badge: 'Recommended' },
   { id: 'llama-3.1-8b-instant',       label: 'Llama 3.1 8B',     provider: 'groq'   },
@@ -762,10 +762,10 @@ const KEY_STEPS = {
     url: 'console.groq.com',
     steps: [
       'Go to console.groq.com',
-      'Sign up or log in — free tier available, no credit card needed',
+      'Sign up or log in - free tier available, no credit card needed',
       'Click "API Keys" in the left sidebar',
       'Click "Create API Key" and give it a name (e.g. "TitleSmart")',
-      'Copy the key — it starts with gsk_',
+      'Copy the key - it starts with gsk_',
       'Paste it in the field above',
     ],
   },
@@ -776,7 +776,7 @@ const KEY_STEPS = {
       'Sign up or log in',
       'Click "API Keys" in the left sidebar',
       'Click "Create Key" and give it a name',
-      'Copy the key — it starts with sk-ant-',
+      'Copy the key - it starts with sk-ant-',
       'Paste it in the field above',
     ],
   },
@@ -787,7 +787,7 @@ const KEY_STEPS = {
       'Sign up or log in (requires billing setup)',
       'Click your profile icon → "API keys"',
       'Click "Create new secret key"',
-      'Copy the key — it starts with sk-',
+      'Copy the key - it starts with sk-',
       'Paste it in the field above',
     ],
   },
@@ -798,7 +798,7 @@ const KEY_STEPS = {
       'Sign in with your Google account',
       'Click "Get API Key" in the top-left menu',
       'Click "Create API key in new project"',
-      'Copy the key — it starts with AIza',
+      'Copy the key - it starts with AIza',
       'Paste it in the field above',
     ],
   },
@@ -830,7 +830,7 @@ async function callAI(system, user) {
   return d.text;
 }
 
-// Parses JSON from an AI response — handles markdown code fences.
+// Parses JSON from an AI response - handles markdown code fences.
 function parseJson(text) {
   const t = text.trim();
   try { return JSON.parse(t); } catch(e1) {}
@@ -865,7 +865,7 @@ async function fetchPapers(query, broad) {
     var res = await fetch(url, { signal: controller.signal });
     clearTimeout(timer);
     if (!res.ok) {
-      var hint = res.status === 429 ? ' (rate-limited — wait a moment and retry)' : '';
+      var hint = res.status === 429 ? ' (rate-limited - wait a moment and retry)' : '';
       throw new Error('Semantic Scholar ' + res.status + hint);
     }
     var data = await res.json();
@@ -881,7 +881,7 @@ async function fetchPapers(query, broad) {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   CORPUS PRE-COMPUTATION (JavaScript — no AI involved)
+   CORPUS PRE-COMPUTATION (JavaScript - no AI involved)
    Computes real statistics from paper titles so the AI never
    has to count or average anything. The AI only does what it
    is actually good at: semantic judgment and classification.
@@ -939,7 +939,7 @@ function mineCorpus(papers) {
     }
     if (title.indexOf('?') !== -1) questionCount++;
 
-    // Count word occurrences — deduplicate within each title so a single
+    // Count word occurrences - deduplicate within each title so a single
     // paper cannot inflate a term's cross-paper frequency.
     var seenInTitle = {};
     tokenizeTitle(title).forEach(function(w) {
@@ -1017,7 +1017,7 @@ Return JSON exactly:
 }
 
 Critical rules for search queries:
-- Be highly specific — avoid generic words like 'study', 'analysis', 'research', 'impact', 'effect'
+- Be highly specific - avoid generic words like 'study', 'analysis', 'research', 'impact', 'effect'
 - Use the exact terminology a researcher in this subfield would use
 - search_query: What was studied? (topic + population/setting/disease/material)
 - search_query_method: How was it studied? (method name + application domain)
@@ -1026,9 +1026,9 @@ Critical rules for search queries:
   };
 }
 
-// Prompt A: pure semantic task — which papers are most relevant, what is the dominant structure?
+// Prompt A: pure semantic task - which papers are most relevant, what is the dominant structure?
 // Word frequencies and title lengths are already computed by mineCorpus() in JavaScript.
-// The AI only judges meaning and pattern — it does not count anything.
+// The AI only judges meaning and pattern - it does not count anything.
 function promptRelevance(abstract, papers, corpus) {
   var list = papers.map(function(p, i) {
     return (i + 1) + '. "' + p.title + '" (' + (p.year || 'n.d.') + ', ' + (p.venue || 'unknown venue') + ', ' + (p.citationCount || 0).toLocaleString() + ' citations)';
@@ -1042,15 +1042,15 @@ function promptRelevance(abstract, papers, corpus) {
     : '';
 
   return {
-    system: 'You are an academic literature analyst. Do not count or compute — those numbers are provided. Your job is semantic judgment only. Return only valid JSON, no markdown.',
-    user: 'Two tasks. Read carefully.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nPAPERS (sorted by citation count):\n' + list + '\n\nTASK 1 — RELEVANCE: Identify the 5 papers most semantically relevant to this specific abstract (topic + methodology + domain match). Do not pick broadly popular papers — pick papers actually about the same research question. Return 1-based indices.\n\nTASK 2 — STRUCTURE: Based on the structural examples below, write the single dominant template used most by high-citation titles in this corpus. Express it as a generic slot template (e.g. "[Population] + [Intervention]: [Outcome] in [Context]" or "[Method] for [Task]: [Qualifier]").\n\n' + colonSection + nonColonSection + '\n\nReturn JSON exactly:\n{\n  "relevant_5": [i1, i2, i3, i4, i5],\n  "dominant_structure": "<generic template — no angle brackets in the actual string>"\n}',
+    system: 'You are an academic literature analyst. Do not count or compute - those numbers are provided. Your job is semantic judgment only. Return only valid JSON, no markdown.',
+    user: 'Two tasks. Read carefully.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nPAPERS (sorted by citation count):\n' + list + '\n\nTASK 1 - RELEVANCE: Identify the 5 papers most semantically relevant to this specific abstract (topic + methodology + domain match). Do not pick broadly popular papers - pick papers actually about the same research question. Return 1-based indices.\n\nTASK 2 - STRUCTURE: Based on the structural examples below, write the single dominant template used most by high-citation titles in this corpus. Express it as a generic slot template (e.g. "[Population] + [Intervention]: [Outcome] in [Context]" or "[Method] for [Task]: [Qualifier]").\n\n' + colonSection + nonColonSection + '\n\nReturn JSON exactly:\n{\n  "relevant_5": [i1, i2, i3, i4, i5],\n  "dominant_structure": "<generic template - no angle brackets in the actual string>"\n}',
   };
 }
 
-// Prompt B: pure abstract analysis — no papers involved at all.
+// Prompt B: pure abstract analysis - no papers involved at all.
 function promptDecomp(abstract) {
   return {
-    system: 'You are a rigorous academic writing analyst. Decompose the abstract precisely. Be conservative — only extract what the abstract explicitly states. Return only valid JSON, no markdown.',
+    system: 'You are a rigorous academic writing analyst. Decompose the abstract precisely. Be conservative - only extract what the abstract explicitly states. Return only valid JSON, no markdown.',
     user: `Decompose this abstract into its core research components with precision.
 
 ABSTRACT:
@@ -1060,9 +1060,9 @@ ${abstract}
 
 Return JSON exactly:
 {
-  "core_contribution": "<The single most important finding or contribution — one sentence, no hedging, grounded only in what the abstract actually claims>",
-  "methodology": "<Exact research design or method — be specific (e.g. 'randomised controlled trial', 'convolutional neural network', 'ethnographic fieldwork', NOT just 'quantitative study')>",
-  "population_domain": "<Who or what was studied — be specific (e.g. 'adults aged 40-65 with Type 2 diabetes in urban Ethiopia', NOT just 'patients')>",
+  "core_contribution": "<The single most important finding or contribution - one sentence, no hedging, grounded only in what the abstract actually claims>",
+  "methodology": "<Exact research design or method - be specific (e.g. 'randomised controlled trial', 'convolutional neural network', 'ethnographic fieldwork', NOT just 'quantitative study')>",
+  "population_domain": "<Who or what was studied - be specific (e.g. 'adults aged 40-65 with Type 2 diabetes in urban Ethiopia', NOT just 'patients')>",
   "key_variables": ["primary outcome variable", "main independent variable", "third most important variable"],
   "time_period": "<Time period or temporal scope studied, or 'Not specified' if absent>",
   "evidence_strength": "experimental|observational|theoretical|computational|review-based|mixed-methods",
@@ -1079,41 +1079,41 @@ Rules:
 
 const RUBRIC = `SMART SCORING RUBRIC (score each dimension 0–20):
 
-S — Specific (0–20)
+S - Specific (0–20)
   20 = Exact topic, population, and variable all named
   15 = Two of three present
   10 = Only general topic named
    5 = Vague, applicable to multiple fields
    0 = No identifiable subject
 
-M — Measurable (0–20)
+M - Measurable (0–20)
   20 = Method or metric explicitly signaled in title
   15 = Outcome implied but not named
   10 = Study type hinted (analysis, review, etc.)
    5 = No measurability signal
    0 = Actively misleading about scope
 
-A — Achievable (0–20)
+A - Achievable (0–20)
   20 = Scope of claim matches abstract evidence exactly
   15 = Slight overstatement, minor fix needed
   10 = Title claims more than abstract delivers
    5 = Significant credibility mismatch
    0 = Title is unsupportable by the abstract
 
-R — Relevant (0–20)
+R - Relevant (0–20)
   20 = Uses 3+ keywords from Tier 1 or Tier 2 vocabulary pool
   15 = Uses 2 keywords from pool
   10 = Uses 1 keyword from pool
    5 = Adjacent terminology, no direct match
    0 = No connection to field vocabulary
 
-T — Time-bound (0–20)
+T - Time-bound (0–20)
   20 = Time period, phase, or temporal context present
   15 = Temporal context implied
   10 = Missing but abstract contains time data
    5 = No temporal anchor despite time-sensitive content
    0 = Time absent but paper explicitly requires it
-  null = Theoretical/timeless paper — redistribute 20 pts equally across S, M, A, R`;
+  null = Theoretical/timeless paper - redistribute 20 pts equally across S, M, A, R`;
 
 // corpus = mineCorpus() output (JS-computed, exact)
 // aiStructure = dominant_structure string from promptRelevance AI call
@@ -1134,19 +1134,19 @@ function prompt3(abstract, field, corpus, aiStructure, decomp, rel5papers, paper
   var evStr = (decomp && decomp.evidence_strength) || '';
   var claimScope = (decomp && decomp.claim_scope) || '';
   if (evStr === 'theoretical') {
-    aCalibration = 'EVIDENCE NOTE: This is a theoretical paper with no empirical data. A-score ≤ 18 for any title that implies empirical findings. The title must signal theory/framework/model — not measured outcomes.';
+    aCalibration = 'EVIDENCE NOTE: This is a theoretical paper with no empirical data. A-score ≤ 18 for any title that implies empirical findings. The title must signal theory/framework/model - not measured outcomes.';
   } else if (evStr === 'observational' && claimScope === 'narrow') {
     aCalibration = 'EVIDENCE NOTE: This is an observational study with narrow scope (' + (decomp.population_domain || 'limited sample') + '). A-score ≤ 15 for any title that implies causal or broadly generalisable findings. Words like "determines", "causes", "proves" are overstatements.';
   } else if (evStr === 'experimental' && claimScope === 'moderate') {
     aCalibration = 'EVIDENCE NOTE: Experimental with moderate scope. Causal language is acceptable but generalisation must be qualified. A-score penalty if the title implies universal applicability.';
   } else if (evStr === 'review-based') {
-    aCalibration = 'EVIDENCE NOTE: This is a review/meta-analysis. The title must signal a synthesis role (e.g. "systematic review", "meta-analysis", "evidence synthesis") — do not generate a title that reads like an original research paper.';
+    aCalibration = 'EVIDENCE NOTE: This is a review/meta-analysis. The title must signal a synthesis role (e.g. "systematic review", "meta-analysis", "evidence synthesis") - do not generate a title that reads like an original research paper.';
   } else {
-    aCalibration = 'EVIDENCE NOTE: Evidence type is ' + (evStr || 'unspecified') + ', claim scope is ' + (claimScope || 'unspecified') + '. Calibrate A-score accordingly — never overstate what the abstract can support.';
+    aCalibration = 'EVIDENCE NOTE: Evidence type is ' + (evStr || 'unspecified') + ', claim scope is ' + (claimScope || 'unspecified') + '. Calibrate A-score accordingly - never overstate what the abstract can support.';
   }
 
   return {
-    system: 'You are a world-class academic title specialist. The abstract is your ONLY source of truth — never claim anything the abstract does not explicitly state. Field vocabulary from the corpus is MANDATORY — not optional. Return only valid JSON, no markdown.',
+    system: 'You are a world-class academic title specialist. The abstract is your ONLY source of truth - never claim anything the abstract does not explicitly state. Field vocabulary from the corpus is MANDATORY - not optional. Return only valid JSON, no markdown.',
     user: `Generate 4 distinct, high-quality title recommendations grounded strictly in the data below.
 
 ABSTRACT:
@@ -1154,7 +1154,7 @@ ABSTRACT:
 ${abstract}
 """
 
-FIELD: ${field.discipline} — ${field.subfield}
+FIELD: ${field.discipline} - ${field.subfield}
 PAPER TYPE: ${paperType || 'article'}
 NOVELTY TYPE: ${(decomp && decomp.novelty_type) || 'unspecified'}
 
@@ -1163,7 +1163,7 @@ CORPUS STATISTICS (exact counts from ${corpus.n} top-cited papers in this field)
 - Colon usage: ${corpus.colonCount}/${corpus.n} titles (${corpus.colonPct}%)
 - Dominant structure template: ${aiStructure || 'not identified'}
 
-VOCABULARY POOL — words verified from real top-cited papers in this field:
+VOCABULARY POOL - words verified from real top-cited papers in this field:
 - Tier 1 (≥5 papers): ${tier1str}
 - Tier 2 (3–4 papers): ${tier2str}
 - Tier 3 (2 papers): ${tier3str}
@@ -1188,17 +1188,17 @@ ${aCalibration}
 ${RUBRIC}
 
 Generate EXACTLY these 4 title types:
-1. "SMART Maximizer" — optimise all 5 SMART dimensions simultaneously; must include methodology signal
-2. "Concise SMART" — ≤12 words total, strong SMART score; cut every word that does not add information
-3. "Citation-Matched" — follows the dominant structural template EXACTLY; must fit the template slot-for-slot
-4. "Population-Foregrounded" — opens with the specific population/domain/setting; useful when the population is the distinctive feature
+1. "SMART Maximizer" - optimise all 5 SMART dimensions simultaneously; must include methodology signal
+2. "Concise SMART" - ≤12 words total, strong SMART score; cut every word that does not add information
+3. "Citation-Matched" - follows the dominant structural template EXACTLY; must fit the template slot-for-slot
+4. "Population-Foregrounded" - opens with the specific population/domain/setting; useful when the population is the distinctive feature
 
 Strict rules:
-- A-score: honour the evidence calibration note above — this is the most commonly overscored dimension
+- A-score: honour the evidence calibration note above - this is the most commonly overscored dimension
 - fix_notes: when score < 15, quote the abstract line that constrains the score; leave empty string if score ≥ 15
 - T = null only if the paper is purely theoretical/timeless with zero temporal content
 - winner = highest total SMART score; on tie, prefer SMART Maximizer
-- Do NOT generate generic placeholders — every title must be a complete, publishable academic title
+- Do NOT generate generic placeholders - every title must be a complete, publishable academic title
 
 Return JSON exactly:
 {
@@ -1246,7 +1246,7 @@ Return JSON exactly:
 }
 
 /* ─────────────────────────────────────────────────────────────
-   JOURNAL SUGGESTER — API + PROMPTS
+   JOURNAL SUGGESTER - API + PROMPTS
    ───────────────────────────────────────────────────────────── */
 
 async function fetchJournals(query) {
@@ -1255,7 +1255,7 @@ async function fetchJournals(query) {
   const res = await fetch(url);
   if (!res.ok) {
     const body = await res.text().catch(function() { return ''; });
-    throw new Error('OpenAlex ' + res.status + (body ? ' — ' + body.slice(0, 200) : ''));
+    throw new Error('OpenAlex ' + res.status + (body ? ' - ' + body.slice(0, 200) : ''));
   }
   const data = await res.json();
   var results = (data.results || []).filter(function(j) { return j.display_name; });
@@ -1270,7 +1270,7 @@ function promptJournal1(abstract) {
   };
 }
 
-// IF tier definitions — shared between prompt and UI
+// IF tier definitions - shared between prompt and UI
 var IF_TIERS = [
   { key: 'any',      label: 'Any IF',                 range: null,         min: null, max: null  },
   { key: 'high',     label: 'High Impact  (IF ≥ 10)', range: 'IF ≥ 10',   min: 10,   max: null  },
@@ -1292,9 +1292,9 @@ function promptJournal2(abstract, field, concepts, journalData, prefs, ifFilterN
 
   const access = prefs.access && prefs.access !== 'any' ? prefs.access : 'no preference';
   const msType = paperType ? paperType.replace('-', ' ') : 'article';
-  const oaNote = prefs.oaMandate ? '\n⚠ FUNDER MANDATE: Only recommend open-access or hybrid journals — ineligible to recommend subscription-only.' : '';
+  const oaNote = prefs.oaMandate ? '\n⚠ FUNDER MANDATE: Only recommend open-access or hybrid journals - ineligible to recommend subscription-only.' : '';
   const filterCtx = ifFilterNote
-    ? '\nIF NOTE: ' + ifFilterNote + '. Your only task is ranking by scope fit — not filtering by IF.'
+    ? '\nIF NOTE: ' + ifFilterNote + '. Your only task is ranking by scope fit - not filtering by IF.'
     : '\nNo IF filter applied. Classify each journal\'s IF tier (High ≥10 / Strong 5–9.9 / Good 2–4.9 / Standard <2).';
 
   return {
@@ -1312,11 +1312,11 @@ MANUSCRIPT TYPE: ${msType}
 ACCESS PREFERENCE: ${access}${oaNote}
 ${filterCtx}
 
-CANDIDATE JOURNALS — selected because OpenAlex confirms they specialize in the paper's research concepts.
-Each row: name | access | IF (OpenAlex verified — do NOT alter) | APC | publisher | concepts matched | editorial scope
+CANDIDATE JOURNALS - selected because OpenAlex confirms they specialize in the paper's research concepts.
+Each row: name | access | IF (OpenAlex verified - do NOT alter) | APC | publisher | concepts matched | editorial scope
 ${rows}
 
-Your task: using your knowledge of each journal's ACTUAL aims & scope (from training) together with the editorial scope topics shown, rank the 5 journals that are the strongest fit. Prioritize scope alignment over IF prestige — a paper submitted to the wrong journal gets desk-rejected regardless of quality.
+Your task: using your knowledge of each journal's ACTUAL aims & scope (from training) together with the editorial scope topics shown, rank the 5 journals that are the strongest fit. Prioritize scope alignment over IF prestige - a paper submitted to the wrong journal gets desk-rejected regardless of quality.
 
 Rules:
 - impact_factor: copy the IF value EXACTLY from the list; use 0.0 if N/A
@@ -1326,7 +1326,7 @@ Rules:
 - scope_fit (0–100): does the paper's contribution breadth match what this journal accepts?
 - rejection_risk: low | medium | high
 - rejection_risk_note: ONE concrete sentence on the most likely desk-rejection reason for THIS paper at THIS journal
-- why: 2–3 sentences citing a specific editorial reason — name what the journal covers and why this paper fits
+- why: 2–3 sentences citing a specific editorial reason - name what the journal covers and why this paper fits
 
 Return JSON exactly:
 {
@@ -1352,7 +1352,7 @@ Return JSON exactly:
 }
 
 /* ─────────────────────────────────────────────────────────────
-   ABSTRACT IMPROVER — PROMPT
+   ABSTRACT IMPROVER - PROMPT
    ───────────────────────────────────────────────────────────── */
 
 function promptAbstract(abstract, paperType) {
@@ -1363,7 +1363,7 @@ function promptAbstract(abstract, paperType) {
   var scoreJson = '{' + dimKeys.map(function(k) { return '"' + k + '":0'; }).join(',') + '}';
   return {
     system: 'You are an expert academic writing coach. Evaluate the abstract against ' + fw.name + ' criteria and give the author precise feedback on what to add, what to remove, and what to improve. Do NOT rewrite or generate any paper content. Return only valid JSON, no markdown.',
-    user: 'Evaluate this ' + typeKey.replace('-', ' ') + ' abstract and give the author actionable feedback.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nPAPER TYPE: ' + typeKey.replace('-', ' ') + '\n\n' + fw.name + ' SCORING (each 0-20):\n' + dimList + '\n\nFor every score below 18, add at least one feedback item. Use action "add" for missing content, "remove" for redundant/vague content, "improve" for weak but present content.\n\nReturn JSON exactly:\n{\n  "scores": ' + scoreJson + ',\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "element": "' + dimKeys[0] + '",\n      "action": "add|remove|improve",\n      "severity": "high|medium|low",\n      "note": "Tell the author exactly what content to add, remove, or change — be specific"\n    }\n  ]\n}',
+    user: 'Evaluate this ' + typeKey.replace('-', ' ') + ' abstract and give the author actionable feedback.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nPAPER TYPE: ' + typeKey.replace('-', ' ') + '\n\n' + fw.name + ' SCORING (each 0-20):\n' + dimList + '\n\nFor every score below 18, add at least one feedback item. Use action "add" for missing content, "remove" for redundant/vague content, "improve" for weak but present content.\n\nReturn JSON exactly:\n{\n  "scores": ' + scoreJson + ',\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "element": "' + dimKeys[0] + '",\n      "action": "add|remove|improve",\n      "severity": "high|medium|low",\n      "note": "Tell the author exactly what content to add, remove, or change - be specific"\n    }\n  ]\n}',
   };
 }
 
@@ -1375,12 +1375,12 @@ function promptConclusion(conclusion, paperType) {
   var scoreJson = '{' + dimKeys.map(function(k) { return '"' + k + '":0'; }).join(',') + '}';
   return {
     system: 'You are an expert academic writing coach. Evaluate the conclusion against ' + fw.name + ' criteria and give the author precise feedback on what to add, what to remove, and what to improve. Do NOT rewrite or generate any paper content. Return only valid JSON, no markdown.',
-    user: 'Evaluate this ' + typeKey.replace('-', ' ') + ' conclusion and give the author actionable feedback.\n\nCONCLUSION:\n"""\n' + conclusion + '\n"""\n\nPAPER TYPE: ' + typeKey.replace('-', ' ') + '\n\n' + fw.name + ' SCORING (each 0-20):\n' + dimList + '\n\nFor every score below 18, add at least one feedback item. Use action "add" for missing content, "remove" for redundant/vague content, "improve" for weak but present content.\n\nReturn JSON exactly:\n{\n  "scores": ' + scoreJson + ',\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "element": "' + dimKeys[0] + '",\n      "action": "add|remove|improve",\n      "severity": "high|medium|low",\n      "note": "Tell the author exactly what content to add, remove, or change — be specific"\n    }\n  ]\n}',
+    user: 'Evaluate this ' + typeKey.replace('-', ' ') + ' conclusion and give the author actionable feedback.\n\nCONCLUSION:\n"""\n' + conclusion + '\n"""\n\nPAPER TYPE: ' + typeKey.replace('-', ' ') + '\n\n' + fw.name + ' SCORING (each 0-20):\n' + dimList + '\n\nFor every score below 18, add at least one feedback item. Use action "add" for missing content, "remove" for redundant/vague content, "improve" for weak but present content.\n\nReturn JSON exactly:\n{\n  "scores": ' + scoreJson + ',\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "element": "' + dimKeys[0] + '",\n      "action": "add|remove|improve",\n      "severity": "high|medium|low",\n      "note": "Tell the author exactly what content to add, remove, or change - be specific"\n    }\n  ]\n}',
   };
 }
 
 /* ─────────────────────────────────────────────────────────────
-   CHAPTER REVIEW — FRAMEWORKS + PROMPT
+   CHAPTER REVIEW - FRAMEWORKS + PROMPT
    ───────────────────────────────────────────────────────────── */
 
 var CHAPTER_FRAMEWORKS = {
@@ -1505,18 +1505,18 @@ function promptChapter(chapterType, text, paperType) {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   RESEARCH QUESTION EVALUATOR — PROMPT
+   RESEARCH QUESTION EVALUATOR - PROMPT
    ───────────────────────────────────────────────────────────── */
 
 function promptResearchQ(rq, studyType, paperType) {
   return {
     system: 'You are an expert in research methodology. Evaluate the research question against FINER criteria. Do NOT rewrite or generate any paper content. Return only valid JSON, no markdown.',
-    user: 'Evaluate this research question.\n\nRESEARCH QUESTION:\n"""\n' + rq + '\n"""\n\nSTUDY TYPE: ' + studyType + '\nPAPER TYPE: ' + (paperType || 'article') + '\n\nFINER SCORING (each 0-20):\n- F: Feasible — can this study realistically be conducted with reasonable resources?\n- I: Interesting — does it address something the field currently cares about?\n- N: Novel — does it advance beyond existing knowledge?\n- E: Ethical — can it be conducted without undue risk to participants?\n- R: Relevant — is it relevant to current field priorities?\n\nFor every score below 16, add at least one feedback item.\n\nReturn JSON exactly:\n{\n  "scores": {"F":0,"I":0,"N":0,"E":0,"R":0},\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "criterion": "F|I|N|E|R",\n      "issue": "The specific problem with this criterion",\n      "suggestion": "What to change to improve this score"\n    }\n  ]\n}',
+    user: 'Evaluate this research question.\n\nRESEARCH QUESTION:\n"""\n' + rq + '\n"""\n\nSTUDY TYPE: ' + studyType + '\nPAPER TYPE: ' + (paperType || 'article') + '\n\nFINER SCORING (each 0-20):\n- F: Feasible - can this study realistically be conducted with reasonable resources?\n- I: Interesting - does it address something the field currently cares about?\n- N: Novel - does it advance beyond existing knowledge?\n- E: Ethical - can it be conducted without undue risk to participants?\n- R: Relevant - is it relevant to current field priorities?\n\nFor every score below 16, add at least one feedback item.\n\nReturn JSON exactly:\n{\n  "scores": {"F":0,"I":0,"N":0,"E":0,"R":0},\n  "verdict": "Overall assessment in 1-2 sentences",\n  "feedback": [\n    {\n      "criterion": "F|I|N|E|R",\n      "issue": "The specific problem with this criterion",\n      "suggestion": "What to change to improve this score"\n    }\n  ]\n}',
   };
 }
 
 /* ─────────────────────────────────────────────────────────────
-   CONTRIBUTION CLARITY CHECKER — PROMPT
+   CONTRIBUTION CLARITY CHECKER - PROMPT
    ───────────────────────────────────────────────────────────── */
 
 function promptContribution(abstract, paperType) {
@@ -1527,7 +1527,7 @@ function promptContribution(abstract, paperType) {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   KEYWORDS OPTIMIZER — PROMPT
+   KEYWORDS OPTIMIZER - PROMPT
    ───────────────────────────────────────────────────────────── */
 
 function promptKeywords(abstract, keywordData, paperType) {
@@ -1549,15 +1549,15 @@ PAPER TYPE: ${paperType || 'article'}
 KEYWORD PAPER COUNTS (from Semantic Scholar):
 ${rows}
 
-Perform a thorough expert evaluation — not a surface-level review.
+Perform a thorough expert evaluation - not a surface-level review.
 
 For each keyword:
 1. specificity:
-   - "too-broad": >50,000 papers — the keyword will bury this paper in noise
-   - "broad": 5,000–50,000 papers — high competition, low differentiation
-   - "moderate": 500–5,000 papers — good balance
-   - "specific": <500 papers — precise, but check if researchers actually search this term
-   - "too-narrow": <50 papers — may miss readers who use broader parent terms
+   - "too-broad": >50,000 papers - the keyword will bury this paper in noise
+   - "broad": 5,000–50,000 papers - high competition, low differentiation
+   - "moderate": 500–5,000 papers - good balance
+   - "specific": <500 papers - precise, but check if researchers actually search this term
+   - "too-narrow": <50 papers - may miss readers who use broader parent terms
 
 2. relevance: does this keyword accurately describe a CORE concept in this abstract? (high/medium/low)
 
@@ -1567,11 +1567,11 @@ For each keyword:
 
 5. action: "keep" / "refine" (adjust phrasing) / "replace" (this slot should use a different term entirely) / "remove" (redundant or irrelevant)
 
-6. note: specific, actionable guidance — if replacing, suggest the exact replacement term and why
+6. note: specific, actionable guidance - if replacing, suggest the exact replacement term and why
 
 Also:
 - Detect if the keyword set is missing any of the 4 key retrieval layers: topic, method, population, outcome. Flag missing layers.
-- Suggest 3–5 additional keywords that would improve discoverability, with rationale. Prefer compound terms (multi-word phrases) over single generic words — they are more precise and more likely to match actual search queries.
+- Suggest 3–5 additional keywords that would improve discoverability, with rationale. Prefer compound terms (multi-word phrases) over single generic words - they are more precise and more likely to match actual search queries.
 - Include one Boolean search string combining your top 3–4 recommended keywords (use AND/OR) that a researcher would realistically type to find this paper.
 
 Return JSON exactly:
@@ -1586,7 +1586,7 @@ Return JSON exactly:
       "discoverability_role": "topic-anchor|method-signal|population-marker|outcome-indicator|noise",
       "overlap_issue": "none|<name of overlapping keyword>",
       "action": "keep|refine|replace|remove",
-      "note": "Specific actionable guidance — be direct"
+      "note": "Specific actionable guidance - be direct"
     }
   ],
   "suggested": [
@@ -1602,10 +1602,10 @@ Return JSON exactly:
 }
 
 /* ─────────────────────────────────────────────────────────────
-   FULL PAPER — SEGMENTATION PROMPT
+   FULL PAPER - SEGMENTATION PROMPT
    ───────────────────────────────────────────────────────────── */
 
-// Ask the AI for headings only — NOT section content.
+// Ask the AI for headings only - NOT section content.
 // Section texts are sliced from the original paper in JS using heading positions.
 // This keeps the AI response small (just heading strings) and avoids output token truncation.
 function promptSegment(fullText, paperType) {
@@ -1615,8 +1615,8 @@ function promptSegment(fullText, paperType) {
   }).join(', ');
   var keyList = chapterKeys.join(', ');
   return {
-    system: 'You are an expert at parsing academic papers. Return section headings only — do NOT return any section body text. Return only valid JSON, no markdown.',
-    user: 'Identify the section headings in this ' + paperType + ' paper.\n\nPAPER TYPE: ' + paperType + '\nEXPECTED SECTIONS: ' + chapters + '\n\nFULL PAPER:\n"""\n' + fullText.slice(0, 28000) + '\n"""\n\nFor each section found, return the exact heading string exactly as it appears in the paper (including any prefix like "1.", "##", "ABSTRACT", "Methods" etc.). Map it to the correct key. Omit sections not present.\n\nReturn headings ONLY — no body text at all.\n\nReturn JSON exactly:\n{\n  "sections": [\n    {\n      "key": "<one of: ' + keyList + '>",\n      "heading": "<exact heading string as it appears in the paper>"\n    }\n  ],\n  "notes": "<note on missing sections or unusual structure, or null>"\n}',
+    system: 'You are an expert at parsing academic papers. Return section headings only - do NOT return any section body text. Return only valid JSON, no markdown.',
+    user: 'Identify the section headings in this ' + paperType + ' paper.\n\nPAPER TYPE: ' + paperType + '\nEXPECTED SECTIONS: ' + chapters + '\n\nFULL PAPER:\n"""\n' + fullText.slice(0, 28000) + '\n"""\n\nFor each section found, return the exact heading string exactly as it appears in the paper (including any prefix like "1.", "##", "ABSTRACT", "Methods" etc.). Map it to the correct key. Omit sections not present.\n\nReturn headings ONLY - no body text at all.\n\nReturn JSON exactly:\n{\n  "sections": [\n    {\n      "key": "<one of: ' + keyList + '>",\n      "heading": "<exact heading string as it appears in the paper>"\n    }\n  ],\n  "notes": "<note on missing sections or unusual structure, or null>"\n}',
   };
 }
 
@@ -1778,7 +1778,7 @@ function LiteratureDisplay({ papers, relevantSet }) {
                     {p.title}
                     {isRel && <span className="chip neutral" style={{ marginLeft:'.45rem', fontSize:'.6rem' }}>relevant</span>}
                   </td>
-                  <td className="p-year">{p.year || '—'}</td>
+                  <td className="p-year">{p.year || '-'}</td>
                   <td className={`p-cites ${p.citationCount > 1000 ? 'hot' : ''}`}>
                     {(p.citationCount || 0).toLocaleString()}
                   </td>
@@ -1792,7 +1792,7 @@ function LiteratureDisplay({ papers, relevantSet }) {
   );
 }
 
-// data = corpus (mineCorpus output — JS-computed exact stats)
+// data = corpus (mineCorpus output - JS-computed exact stats)
 // relevance = AI output from promptRelevance (dominant_structure, relevant_5)
 // papers = raw paper array
 function MiningDisplay({ data, relevance, papers }) {
@@ -1800,18 +1800,18 @@ function MiningDisplay({ data, relevance, papers }) {
   const rel5 = ((relevance && relevance.relevant_5) || [])
     .map(function(i) { return papers && papers[i - 1]; })
     .filter(Boolean);
-  const structure = (relevance && relevance.dominant_structure) || '—';
+  const structure = (relevance && relevance.dominant_structure) || '-';
   const poolSize = (corpus.tier1Display || []).length + (corpus.tier2Display || []).length;
   const tiers = [
-    { key: 'tier1Display', lbl: 'Tier 1 — appears in 5+ titles (highest priority)' },
-    { key: 'tier2Display', lbl: 'Tier 2 — appears in 3–4 titles' },
-    { key: 'tier3Display', lbl: 'Tier 3 — appears in 2 titles' },
+    { key: 'tier1Display', lbl: 'Tier 1 - appears in 5+ titles (highest priority)' },
+    { key: 'tier2Display', lbl: 'Tier 2 - appears in 3–4 titles' },
+    { key: 'tier3Display', lbl: 'Tier 3 - appears in 2 titles' },
   ];
   return (
     <>
       <div className="stats-row">
         <div className="stat-box">
-          <span className="stat-val">{corpus.avgLen || '—'}</span>
+          <span className="stat-val">{corpus.avgLen || '-'}</span>
           <span className="stat-lbl">Avg words</span>
         </div>
         <div className="stat-box">
@@ -1824,8 +1824,8 @@ function MiningDisplay({ data, relevance, papers }) {
         </div>
       </div>
       <div className="warn-box" style={{ marginBottom:'.85rem', fontSize:'.75rem' }}>
-        Word counts are exact — computed from the {corpus.n || '?'} retrieved titles, not estimated.
-        Title length range: {corpus.lenRange || '—'} words.
+        Word counts are exact - computed from the {corpus.n || '?'} retrieved titles, not estimated.
+        Title length range: {corpus.lenRange || '-'} words.
         {corpus.questionCount > 0 && ' ' + corpus.questionCount + ' titles use question form.'}
       </div>
 
@@ -1879,7 +1879,7 @@ function DecompDisplay({ data }) {
       {rows.map(r => (
         <div key={r.key} className="decomp-row">
           <span className="decomp-key">{r.key}</span>
-          <p className="decomp-val">{r.val || '—'}</p>
+          <p className="decomp-val">{r.val || '-'}</p>
         </div>
       ))}
     </div>
@@ -1965,7 +1965,7 @@ function JournalCard({ item, rank }) {
             <span className="jmeta-lbl">Impact Factor{item.if_verified ? ' (verified)' : ''}</span>
           </div>
           <div className="jmeta">
-            <span className="jmeta-val">{item.apc_usd ? '$' + item.apc_usd.toLocaleString() : '—'}</span>
+            <span className="jmeta-val">{item.apc_usd ? '$' + item.apc_usd.toLocaleString() : '-'}</span>
             <span className="jmeta-lbl">APC (USD)</span>
           </div>
           <div className="jmeta">
@@ -1973,7 +1973,7 @@ function JournalCard({ item, rank }) {
             <span className="jmeta-lbl">Avg Fit</span>
           </div>
           <div className="jmeta">
-            <span className="jmeta-val" style={{ textTransform:'capitalize', color: riskColor }}>{item.rejection_risk || '—'}</span>
+            <span className="jmeta-val" style={{ textTransform:'capitalize', color: riskColor }}>{item.rejection_risk || '-'}</span>
             <span className="jmeta-lbl">Desk-Rejection Risk</span>
           </div>
         </div>
@@ -2061,7 +2061,7 @@ function WritingFeedback({ items, dimMap }) {
           return (
             <div key={i} className="improvement-item">
               <div className="improvement-head">
-                <span className="improvement-el">{fb.element} — {dimMap[fb.element] || fb.element}</span>
+                <span className="improvement-el">{fb.element} - {dimMap[fb.element] || fb.element}</span>
                 <span className={'severity-' + (fb.severity || 'low')}>{fb.severity}</span>
               </div>
               <div style={{ display:'flex', alignItems:'flex-start', gap:'.6rem', padding:'.55rem .85rem', lineHeight:1.55 }}>
@@ -2197,7 +2197,7 @@ function ResearchQResult({ data }) {
               return (
                 <div key={i} className="rq-criterion">
                   <div className="rq-crit-head">
-                    <span className="improvement-el">{fb.criterion} — {FINER[fb.criterion] || fb.criterion}</span>
+                    <span className="improvement-el">{fb.criterion} - {FINER[fb.criterion] || fb.criterion}</span>
                   </div>
                   {fb.issue && <div className="rq-crit-issue">{fb.issue}</div>}
                   {fb.suggestion && <div className="rq-crit-fix">{fb.suggestion}</div>}
@@ -2264,7 +2264,7 @@ function KeywordsResult({ data }) {
           ⚠ Missing retrieval layers: {data.missing_layers.map(function(l) {
             return <strong key={l} style={{ color: layerColor[l] || '#333', marginRight:'.35rem' }}>{l}</strong>;
           })}
-          — add keywords covering these to improve discoverability.
+          - add keywords covering these to improve discoverability.
         </div>
       )}
 
@@ -2515,7 +2515,7 @@ function App() {
     setSteps({});
 
     try {
-      /* — Step 1: Field Detection — */
+      /* - Step 1: Field Detection - */
       setStep(1, { status: 'loading' });
       let field;
       try {
@@ -2527,7 +2527,7 @@ function App() {
         return;
       }
 
-      /* — Step 2: Literature Search — fetch topic + method queries in parallel for richer corpus — */
+      /* - Step 2: Literature Search - fetch topic + method queries in parallel for richer corpus - */
       setStep(2, { status: 'loading', msg: 'Searching top-cited papers (topic + method queries in parallel)…' });
       var papers = [];
       var corpus = mineCorpus([]);
@@ -2552,7 +2552,7 @@ function App() {
         var fetched = merged.slice(0, 20);
 
         if (fetched.length === 0) {
-          setStep(2, { status: 'loading', msg: 'No results — retrying with broader query…' });
+          setStep(2, { status: 'loading', msg: 'No results - retrying with broader query…' });
           await new Promise(function(r) { setTimeout(r, 1500); });
           fetched = await fetchPapers(field.search_query, true);
         }
@@ -2569,12 +2569,12 @@ function App() {
         var s2hint = s2msg.includes('429') ? ' (Semantic Scholar rate-limited)'
           : s2msg.includes('timeout') ? ' (Semantic Scholar timed out)'
           : ' (Semantic Scholar temporarily unavailable)';
-        setStep(2, { status: 'warn', error: 'Literature search skipped' + s2hint + '. Titles will be generated from abstract only — accuracy may be reduced.' });
+        setStep(2, { status: 'warn', error: 'Literature search skipped' + s2hint + '. Titles will be generated from abstract only - accuracy may be reduced.' });
       }
 
-      /* — Steps 3 + 4 — */
+      /* - Steps 3 + 4 - */
       /* Step 3 (corpus/relevance) only runs when papers were retrieved. */
-      /* Step 4 (abstract decomposition) always runs — it only needs the abstract. */
+      /* Step 4 (abstract decomposition) always runs - it only needs the abstract. */
       setStep(4, { status: 'loading' });
       var relevanceResult = { relevant_5: [], dominant_structure: '' };
       var decomp;
@@ -2598,7 +2598,7 @@ function App() {
           return;
         }
       } else {
-        // No papers — run decomp alone
+        // No papers - run decomp alone
         try {
           var pDec2 = promptDecomp(abstract);
           decomp = await aiJson(pDec2.system, pDec2.user);
@@ -2609,7 +2609,7 @@ function App() {
         }
       }
 
-      /* — Steps 5 + 6: Titles + Winner — */
+      /* - Steps 5 + 6: Titles + Winner - */
       setStep(5, { status: 'loading' });
       setStep(6, { status: 'loading' });
       try {
@@ -2674,13 +2674,13 @@ function App() {
         display    = ifFiltered.length > 0 ? ifFiltered : enriched;
         filterNote = ifFiltered.length > 0
           ? 'IF filter: ' + tierDef.range
-          : 'No verified matches for IF ' + tierDef.range + ' — showing closest scope matches';
+          : 'No verified matches for IF ' + tierDef.range + ' - showing closest scope matches';
       }
 
       if (journalPrefs.access === 'open-access' || journalPrefs.access === 'oa') {
         var oaOnly = display.filter(function(j){ return j.open_access || j.access_type === 'open-access'; });
         if (oaOnly.length > 0) display = oaOnly;
-        else filterNote = (filterNote ? filterNote + '; ' : '') + 'No OA matches — showing all access types';
+        else filterNote = (filterNote ? filterNote + '; ' : '') + 'No OA matches - showing all access types';
       }
 
       setJSteps({
@@ -2853,7 +2853,7 @@ function App() {
         });
       } else if (name.endsWith('.pdf')) {
         if (typeof pdfjsLib === 'undefined') {
-          alert('PDF library not loaded yet — please wait a moment and try again.');
+          alert('PDF library not loaded yet - please wait a moment and try again.');
           return;
         }
         var buf = await file.arrayBuffer();
@@ -2867,7 +2867,7 @@ function App() {
         rawText = pages.join('\n');
       } else if (name.endsWith('.docx')) {
         if (typeof mammoth === 'undefined') {
-          alert('DOCX library not loaded yet — please wait a moment and try again.');
+          alert('DOCX library not loaded yet - please wait a moment and try again.');
           return;
         }
         var buf2 = await file.arrayBuffer();
@@ -2881,16 +2881,16 @@ function App() {
       // Try to extract just the abstract section from a full paper
       var extracted = '';
       var absMatch = rawText.match(
-        /\bAbstract\b[\s\r\n:—–-]*([\s\S]{80,2000?})(?=\n\s*\n|\b(?:Introduction|Keywords|Background|1\.|1\s+Introduction)\b)/i
+        /\bAbstract\b[\s\r\n:-–-]*([\s\S]{80,2000?})(?=\n\s*\n|\b(?:Introduction|Keywords|Background|1\.|1\s+Introduction)\b)/i
       );
       if (absMatch) {
         extracted = absMatch[1].trim();
       } else {
-        // No clear abstract section found — use the first 600 words as a best guess
+        // No clear abstract section found - use the first 600 words as a best guess
         var words = rawText.trim().split(/\s+/);
         extracted = words.slice(0, 600).join(' ');
         if (words.length > 600) {
-          extracted += '\n\n[Note: abstract section not detected — showing first 600 words. Please trim to your abstract only.]';
+          extracted += '\n\n[Note: abstract section not detected - showing first 600 words. Please trim to your abstract only.]';
         }
       }
 
@@ -2915,7 +2915,7 @@ function App() {
       }
       if (name.endsWith('.pdf')) {
         if (typeof pdfjsLib === 'undefined') {
-          alert('PDF library not loaded yet — please wait a moment and try again.');
+          alert('PDF library not loaded yet - please wait a moment and try again.');
           return;
         }
         var buf = await file.arrayBuffer();
@@ -2931,7 +2931,7 @@ function App() {
       }
       if (name.endsWith('.docx')) {
         if (typeof mammoth === 'undefined') {
-          alert('DOCX library not loaded yet — please wait a moment and try again.');
+          alert('DOCX library not loaded yet - please wait a moment and try again.');
           return;
         }
         var buf2 = await file.arrayBuffer();
@@ -2983,7 +2983,7 @@ function App() {
 
       setFPResult({ status: 'running', sections: sections, results: {}, notes: segResult.notes || null });
 
-      // Step 2: Evaluate all sections in parallel — update UI as each one completes
+      // Step 2: Evaluate all sections in parallel - update UI as each one completes
       var promises = sections.map(function(sec) {
         var pc = promptChapter(sec.key, sec.text, paperType);
         return aiJson(pc.system, pc.user)
@@ -3060,7 +3060,7 @@ function App() {
       <header className="header">
         <p className="eyebrow">Developed by Fitsum Teshome, Ph.D.</p>
         <h1>Title<em>Smart</em></h1>
-        <p className="tagline">Built on actual academic databases — not the same as asking a chatbot to make something up.</p>
+        <p className="tagline">Built on actual academic databases - not the same as asking a chatbot to make something up.</p>
       </header>
 
       {/* ── Paper type bar ── */}
@@ -3080,7 +3080,7 @@ function App() {
 
       {/* ── No-rewrite notice ── */}
       <p style={{ fontFamily:'var(--mono)', fontSize:'.68rem', color:'var(--muted)', margin:'-.75rem 0 1.1rem', fontStyle:'italic' }}>
-        This tool evaluates and gives feedback only — it does not write or rewrite any of your paper's content.
+        This tool evaluates and gives feedback only - it does not write or rewrite any of your paper's content.
       </p>
 
       {/* ── Mode tabs ── */}
@@ -3187,14 +3187,14 @@ function App() {
             id="fp-text"
             value={fullPaperText}
             onChange={function(e) { setFPText(e.target.value); }}
-            placeholder={'Paste your complete ' + paperType.replace('-', ' ') + ' here, or upload a file above — the tool will auto-detect all sections and evaluate each one…'}
+            placeholder={'Paste your complete ' + paperType.replace('-', ' ') + ' here, or upload a file above - the tool will auto-detect all sections and evaluate each one…'}
             disabled={fullPaperRunning}
             style={{ height: '280px' }}
           />
           <div className={'word-count' + (fullPaperText.trim().split(/\s+/).filter(Boolean).length > 24000 ? ' warn' : '')}>
             {fullPaperText.trim().split(/\s+/).filter(Boolean).length} words
             {fullPaperText.trim().split(/\s+/).filter(Boolean).length > 24000
-              ? ' — very long; only the first ~28 000 characters will be used for section detection'
+              ? ' - very long; only the first ~28 000 characters will be used for section detection'
               : ''}
           </div>
           <button
@@ -3266,7 +3266,7 @@ function App() {
             </label>
           </div>
           <div style={{ fontSize:'.7rem', color:'var(--muted)', marginBottom:'.4rem' }}>
-            Supports PDF, Word (.docx), .txt, .md — abstract section extracted automatically
+            Supports PDF, Word (.docx), .txt, .md - abstract section extracted automatically
           </div>
           {wordCount > 0 && wordCount < 50 && (
             <div className="warn-box">⚠ Abstract may be too brief ({wordCount} words). Accuracy may vary.</div>
@@ -3532,7 +3532,7 @@ function App() {
         <StepCard num={1} title="Chapter Evaluation" status="error"><div className="error-box">{chapterResult.error}</div></StepCard>
       )}
       {mode === 'chapter' && chapterResult !== null && chapterResult.status === 'done' && (
-        <StepCard num={1} title={(CHAPTER_FRAMEWORKS[chapterResult.chapterType] || {}).label + ' — ' + (CHAPTER_FRAMEWORKS[chapterResult.chapterType] || {}).name + ' Feedback'} status="done">
+        <StepCard num={1} title={(CHAPTER_FRAMEWORKS[chapterResult.chapterType] || {}).label + ' - ' + (CHAPTER_FRAMEWORKS[chapterResult.chapterType] || {}).name + ' Feedback'} status="done">
           <ChapterResult data={chapterResult.data} chapterType={chapterResult.chapterType} />
         </StepCard>
       )}
@@ -3614,7 +3614,7 @@ function App() {
       {mode === 'full-paper' && fullPaperResult !== null && fullPaperResult.status === 'done' && (
         <StepCard
           num={1}
-          title={'Full Paper Report — ' + (fullPaperResult.sections || []).length + ' sections evaluated'}
+          title={'Full Paper Report - ' + (fullPaperResult.sections || []).length + ' sections evaluated'}
           status="done"
         >
           <FullPaperReport fpResult={fullPaperResult} paperType={paperType} />
@@ -3629,7 +3629,7 @@ function App() {
           Developed by Fitsum Teshome, Ph.D.
         </p>
         <p style={{ fontSize: '.72rem', marginBottom: '.75rem', lineHeight: '1.55' }}>
-          When you ask ChatGPT or any general model to suggest a title or journal, it invents answers from training data — it has no live access to citation databases, impact factors, or real publication records. TitleSmart works differently: it queries live academic databases (Semantic Scholar and OpenAlex) first, retrieves actual papers, real journal IF figures, and verified editorial scope data, then uses AI only to rank and explain — never to fabricate. Every suggestion is grounded in something that actually exists in the scholarly record.
+          When you ask ChatGPT or any general model to suggest a title or journal, it invents answers from training data - it has no live access to citation databases, impact factors, or real publication records. TitleSmart works differently: it queries live academic databases (Semantic Scholar and OpenAlex) first, retrieves actual papers, real journal IF figures, and verified editorial scope data, then uses AI only to rank and explain - never to fabricate. Every suggestion is grounded in something that actually exists in the scholarly record.
         </p>
         <p>
           Powered by{' '}
