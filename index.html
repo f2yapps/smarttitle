@@ -2684,49 +2684,82 @@ function App() {
         });
       });
 
-      // ── STEP 3: Fetch specialist journals directly by topic IDs ──────────
-      // Query OpenAlex sources (journals) filtered by topic IDs.
-      // This returns journals whose editorial scope actually covers these topics —
-      // no papers needed as intermediary, no frequency-counting bias.
-      var rawJournals = [];
+      // ── STEP 3: Fetch journals via two parallel tracks ────────────────────
+      // Track A — topic-ID filter: journals indexed under these research topics
+      // Track B — name search: journals whose NAME contains the abstract's concepts
+      //   (e.g. abstract starts with "agricultural water management" → finds
+      //    "Agricultural Water Management" journal directly by name)
+      // Merging both tracks ensures obvious specialist journals are never missed.
 
-      if (conceptIds.length > 0) {
-        setJSteps({ status: 'loading', msg: 'Finding specialist journals for ' + conceptIds.length + ' topic IDs…' });
-        var conceptFilter = conceptIds.slice(0, 12).join('|');
-        var sourcesRes = await fetch(
-          'https://api.openalex.org/sources' +
-          '?filter=type:journal,topics.id:' + conceptFilter +
-          '&sort=cited_by_count:desc&per-page=60' +
-          '&select=id,display_name,summary_stats,homepage_url,topics,is_oa,apc_usd,apc_prices,host_organization_name,works_count,cited_by_count' +
-          '&mailto=support@f2yapps.com'
-        );
-        if (!sourcesRes.ok) throw new Error('OpenAlex journal fetch failed: HTTP ' + sourcesRes.status);
-        rawJournals = (await sourcesRes.json()).results || [];
-      }
+      setJSteps({ status: 'loading', msg: 'Finding specialist journals…' });
 
-      // Fallback: if topic-ID search returned nothing, search sources by concept text directly
-      if (rawJournals.length === 0) {
-        setJSteps({ status: 'loading', msg: 'Searching journals by research field…' });
-        var searchTerm = field || concepts[0] || '';
-        var fbRes = await fetch(
-          'https://api.openalex.org/sources' +
-          '?search=' + encodeURIComponent(searchTerm) +
-          '&filter=type:journal&sort=cited_by_count:desc&per-page=60' +
-          '&select=id,display_name,summary_stats,homepage_url,topics,is_oa,apc_usd,apc_prices,host_organization_name,works_count,cited_by_count' +
-          '&mailto=support@f2yapps.com'
-        );
-        if (fbRes.ok) rawJournals = (await fbRes.json()).results || [];
-        rawJournals.forEach(function(j){ j._fallback = true; });
-      }
+      var SELECT_FIELDS = 'id,display_name,summary_stats,homepage_url,topics,is_oa,apc_usd,apc_prices,host_organization_name,works_count,cited_by_count';
+
+      // Track A: topic-ID filter
+      var trackAPromise = conceptIds.length > 0 ? fetch(
+        'https://api.openalex.org/sources' +
+        '?filter=type:journal,topics.id:' + conceptIds.slice(0, 12).join('|') +
+        '&sort=cited_by_count:desc&per-page=80' +
+        '&select=' + SELECT_FIELDS + '&mailto=support@f2yapps.com'
+      ).then(function(r){ return r.ok ? r.json() : { results: [] }; })
+       .then(function(d){ return d.results || []; })
+       .catch(function(){ return []; }) : Promise.resolve([]);
+
+      // Track B: name/text search for each AI concept (top 4 concepts, 15 results each)
+      var trackBPromise = Promise.all(
+        concepts.slice(0, 4).map(function(c, ci) {
+          return fetch(
+            'https://api.openalex.org/sources' +
+            '?search=' + encodeURIComponent(c) +
+            '&filter=type:journal&per-page=15&sort=cited_by_count:desc' +
+            '&select=' + SELECT_FIELDS + '&mailto=support@f2yapps.com'
+          ).then(function(r){ return r.ok ? r.json() : { results: [] }; })
+           .then(function(d){
+             return (d.results || []).map(function(j){
+               j._nameMatchCount = (j._nameMatchCount || 0) + 1;
+               return j;
+             });
+           })
+           .catch(function(){ return []; });
+        })
+      ).then(function(arrays) {
+        var seen = {}, combined = [];
+        arrays.forEach(function(arr) {
+          arr.forEach(function(j) {
+            if (seen[j.id]) {
+              seen[j.id]._nameMatchCount = (seen[j.id]._nameMatchCount || 0) + 1;
+            } else {
+              seen[j.id] = j;
+              combined.push(j);
+            }
+          });
+        });
+        return combined;
+      });
+
+      var trackA = await trackAPromise;
+      var trackB = await trackBPromise;
+
+      // Merge: build unified map, mark journals found via name search
+      var journalMap = {};
+      trackA.forEach(function(j){ journalMap[j.id] = j; });
+      trackB.forEach(function(j){
+        if (journalMap[j.id]) {
+          journalMap[j.id]._nameMatchCount = j._nameMatchCount || 1;
+        } else {
+          journalMap[j.id] = j;
+        }
+      });
+      var rawJournals = Object.keys(journalMap).map(function(id){ return journalMap[id]; });
 
       if (rawJournals.length === 0) {
         setJSteps({ status: 'error', error: 'No specialist journals found in OpenAlex for these research concepts. Try "Any IF" or rephrase your abstract.' });
         return;
       }
 
-      // ── STEP 4: Score journals by topic alignment ────────────────────────
-      // Count how many of our target topic IDs appear in the journal's
-      // topics profile, weighted by count (higher = more specialized).
+      // ── STEP 4: Score journals by combined alignment ──────────────────────
+      // topic match score + strong boost for journals found by name search
+      // (name match = journal explicitly specializes in this exact research area)
       rawJournals.forEach(function(j){
         var matchCount = 0;
         var alignScore = 0;
@@ -2737,9 +2770,10 @@ function App() {
             alignScore += (jt.count || 1);
           }
         });
-        j._matchCount  = matchCount;
-        j._alignScore  = alignScore;
-        // Topic names for display (top 6 from journal's topic profile)
+        // Name-match journals surface first — they're the most obviously relevant
+        var nameBoost = j._nameMatchCount || 0;
+        j._matchCount  = matchCount + nameBoost * 3;
+        j._alignScore  = alignScore + nameBoost * 500;
         j._topicNames  = (j.topics || []).slice(0, 6).map(function(t){ return t.display_name; });
       });
 
