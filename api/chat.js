@@ -30,8 +30,23 @@ export default async function handler(req, res) {
   });
 
   if (!groqRes.ok) {
-    const errText = await groqRes.text().catch(() => '');
-    return res.status(groqRes.status).json({ error: `Groq error ${groqRes.status}: ${errText.slice(0, 300)}` });
+    let userMsg;
+    try {
+      const errBody = await groqRes.json();
+      const raw = errBody?.error?.message || JSON.stringify(errBody);
+      if (groqRes.status === 429) {
+        // Extract retry-after seconds if present in the message
+        const secs = raw.match(/try again in (\d+(?:\.\d+)?)s/i)?.[1];
+        userMsg = secs
+          ? `The AI service is temporarily at capacity. Please wait ${Math.ceil(secs)} second(s) and try again.`
+          : 'The AI service is temporarily at capacity (rate limit). Please wait a moment and try again.';
+      } else {
+        userMsg = `AI service error (${groqRes.status}): ${raw.slice(0, 200)}`;
+      }
+    } catch {
+      userMsg = `AI service error (${groqRes.status}). Please try again.`;
+    }
+    return res.status(groqRes.status).json({ error: userMsg });
   }
 
   const data = await groqRes.json();

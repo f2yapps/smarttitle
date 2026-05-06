@@ -1279,28 +1279,28 @@ var IF_TIERS = [
   { key: 'standard', label: 'Standard  (IF < 2)',      range: 'IF < 2',    min: null, max: 1.99  },
 ];
 
-function promptJournal2(abstract, field, methodology, journalData, prefs, ifFilterNote, paperType) {
+function promptJournal2(abstract, field, concepts, journalData, prefs, ifFilterNote, paperType) {
   const rows = journalData.map(function(j, i) {
     const oa = j.is_oa === true ? 'open-access' : (j.is_oa === false ? 'subscription' : 'hybrid');
     const stats = j.summary_stats || {};
     const citedness = stats['2yr_mean_citedness'] != null ? stats['2yr_mean_citedness'] : null;
     const ifStr = citedness !== null ? citedness.toFixed(2) : 'N/A';
     const apc = j.apc_usd ? '$' + j.apc_usd : (j.apc_prices && j.apc_prices.length > 0 ? '$' + j.apc_prices[0].price : 'APC unknown');
-    const paperCount = j._paperCount ? ' | ' + j._paperCount + ' papers on this topic published here' : '';
-    const scopeTopics = j._topicNames && j._topicNames.length > 0 ? ' | covers: ' + j._topicNames.slice(0, 4).join(', ') : '';
-    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF ' + ifStr + ' | APC:' + apc + ' | ' + (j.host_organization_name || j.publisher || 'unknown publisher') + paperCount + scopeTopics;
+    const conceptAlign = j._matchCount ? ' | concepts matched: ' + j._matchCount : '';
+    const scopeTopics = j._topicNames && j._topicNames.length > 0 ? ' | editorial scope: ' + j._topicNames.slice(0, 5).join(', ') : '';
+    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF ' + ifStr + ' | APC:' + apc + ' | ' + (j.host_organization_name || j.publisher || 'unknown publisher') + conceptAlign + scopeTopics;
   }).join('\n');
 
   const access = prefs.access && prefs.access !== 'any' ? prefs.access : 'no preference';
   const msType = paperType ? paperType.replace('-', ' ') : 'article';
   const oaNote = prefs.oaMandate ? '\n⚠ FUNDER MANDATE: Only recommend open-access or hybrid journals — ineligible to recommend subscription-only.' : '';
   const filterCtx = ifFilterNote
-    ? '\nIF NOTE: ' + ifFilterNote + ' Your only task is ranking by fit — not filtering by IF.'
+    ? '\nIF NOTE: ' + ifFilterNote + '. Your only task is ranking by scope fit — not filtering by IF.'
     : '\nNo IF filter applied. Classify each journal\'s IF tier (High ≥10 / Strong 5–9.9 / Good 2–4.9 / Standard <2).';
 
   return {
-    system: 'You are a senior academic publication strategist. Rank journals by fit with THIS specific paper — topic match, methodology alignment, scope appropriateness. Be concrete and realistic. Return only valid JSON, no markdown.',
-    user: `Rank the 5 best-fit journals from the list below for this specific paper.
+    system: 'You are a senior academic editor with deep knowledge of journal aims and scope across all disciplines. Use your knowledge of each journal\'s actual editorial focus to rank candidates by how well they fit this specific paper. Return only valid JSON, no markdown.',
+    user: `Select the 5 journals from the list below that are the best fit for this paper.
 
 ABSTRACT:
 """
@@ -1308,24 +1308,26 @@ ${abstract}
 """
 
 FIELD: ${field}
-KEY RESEARCH TOPICS (from OpenAlex taxonomy): ${methodology}
+RESEARCH CONCEPTS (from OpenAlex taxonomy): ${concepts}
 MANUSCRIPT TYPE: ${msType}
 ACCESS PREFERENCE: ${access}${oaNote}
 ${filterCtx}
 
-JOURNAL LIST — each entry shows: name | access | IF (OpenAlex verified) | APC | publisher | editorial scope topics
-DO NOT alter IF values. Copy them exactly.
+CANDIDATE JOURNALS — selected because OpenAlex confirms they specialize in the paper's research concepts.
+Each row: name | access | IF (OpenAlex verified — do NOT alter) | APC | publisher | concepts matched | editorial scope
 ${rows}
 
+Your task: using your knowledge of each journal's ACTUAL aims & scope (from training) together with the editorial scope topics shown, rank the 5 journals that are the strongest fit. Prioritize scope alignment over IF prestige — a paper submitted to the wrong journal gets desk-rejected regardless of quality.
+
 Rules:
-- impact_factor: copy the IF value EXACTLY from the list above; use 0.0 if N/A
-- if_tier: classify as High (≥10) / Strong (5–9.9) / Good (2–4.9) / Standard (<2) / Unknown (N/A)
-- topic_fit (0–100): how well does this journal's editorial scope match the paper's specific topic?
+- impact_factor: copy the IF value EXACTLY from the list; use 0.0 if N/A
+- if_tier: High (≥10) / Strong (5–9.9) / Good (2–4.9) / Standard (<2) / Unknown
+- topic_fit (0–100): how precisely does this journal's scope cover the paper's main topic?
 - method_fit (0–100): does this journal regularly publish papers using this methodology?
-- scope_fit (0–100): does the paper's contribution breadth match what this journal typically accepts?
-- rejection_risk: low | medium | high — assess based on scope match and IF vs paper novelty
+- scope_fit (0–100): does the paper's contribution breadth match what this journal accepts?
+- rejection_risk: low | medium | high
 - rejection_risk_note: ONE concrete sentence on the most likely desk-rejection reason for THIS paper at THIS journal
-- why: 2–3 sentences citing a SPECIFIC editorial reason (refer to the journal's scope topics listed above)
+- why: 2–3 sentences citing a specific editorial reason — name what the journal covers and why this paper fits
 
 Return JSON exactly:
 {
@@ -2620,85 +2622,119 @@ function App() {
 
   async function runJournals() {
     setJRunning(true);
-    setJSteps({ status: 'loading', msg: 'Generating search angles from your abstract…' });
+    setJSteps({ status: 'loading', msg: 'Analysing your abstract…' });
 
     try {
-      // Step 1: AI generates 4 diverse search queries covering different angles of the paper
-      var kwPrompt = {
-        system: 'You are an academic search specialist. Return only valid JSON, no markdown.',
-        user: 'Given this abstract, generate 4 different keyword search queries (each 3–5 words) that together would surface papers covering all dimensions of this research — main topic, methodology, application domain, and key concept. Make them distinct from each other.\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nReturn JSON exactly:\n{"queries": ["query1","query2","query3","query4"], "field": "main academic discipline"}'
-      };
-
-      var kwResult;
+      // ── STEP 1: AI extracts precise research concepts from the abstract ─────
+      // We go directly from abstract → concept taxonomy → specialist journals.
+      // No papers needed as intermediary — journals are matched by what they
+      // actually cover, not by which papers happened to show up in a text search.
+      var conceptResult;
       try {
-        kwResult = await aiJson(kwPrompt.system, kwPrompt.user);
+        conceptResult = await aiJson(
+          'You are an expert academic librarian. Return only valid JSON, no markdown.',
+          'Read this abstract and extract 6 precise academic research concepts that a librarian would use to find the right specialist journal. They must be specific enough to identify a journal\'s scope — prefer compound terms (e.g. "precision irrigation", "soil moisture sensing") over single generic words (e.g. "water", "sensors").\n\nABSTRACT:\n"""\n' + abstract + '\n"""\n\nReturn JSON exactly:\n{"concepts":["c1","c2","c3","c4","c5","c6"],"field":"primary academic field (e.g. Agricultural Engineering)"}'
+        );
       } catch(e) {
-        var fw = abstract.split(/\s+/).filter(function(w) { return w.length > 4; });
-        kwResult = { queries: [fw.slice(0,4).join(' '), fw.slice(4,8).join(' ')], field: '' };
+        var fw = abstract.split(/\s+/).filter(function(w){ return w.length > 5; });
+        conceptResult = { concepts: fw.slice(0,6), field: '' };
       }
 
-      var queries = (kwResult.queries || []).slice(0, 4).filter(Boolean);
-      if (queries.length === 0) queries = [abstract.split(/\s+/).slice(0, 5).join(' ')];
-
-      // Step 2: Run all 4 queries in parallel — 50 papers each = up to 200 papers total
-      setJSteps({ status: 'loading', msg: 'Pulling ' + (queries.length * 50) + ' papers across ' + queries.length + ' search angles…' });
-
-      var paperBatches = await Promise.all(
-        queries.map(function(q) {
-          var url = 'https://api.openalex.org/works?search=' + encodeURIComponent(q) +
-            '&filter=type:article&per-page=50&sort=cited_by_count:desc' +
-            '&select=id,primary_location&mailto=support@f2yapps.com';
-          return fetch(url)
-            .then(function(r) { return r.ok ? r.json() : { results: [] }; })
-            .then(function(d) { return d.results || []; })
-            .catch(function() { return []; });
-        })
-      );
-
-      // Step 3: Group all papers by journal, count how many times each appears
-      var journalFreq = {};
-      paperBatches.forEach(function(batch) {
-        batch.forEach(function(work) {
-          var src = work.primary_location && work.primary_location.source;
-          if (!src || !src.id || src.type !== 'journal') return;
-          journalFreq[src.id] = (journalFreq[src.id] || 0) + 1;
-        });
-      });
-
-      var sortedIds = Object.keys(journalFreq).sort(function(a, b) {
-        return journalFreq[b] - journalFreq[a];
-      });
-
-      if (sortedIds.length === 0) {
-        setJSteps({ status: 'error', error: 'No journal articles found for this topic in OpenAlex. Try a different abstract.' });
+      var concepts = (conceptResult.concepts || []).slice(0, 6).filter(Boolean);
+      var field = conceptResult.field || '';
+      if (concepts.length === 0) {
+        setJSteps({ status: 'error', error: 'Could not extract research concepts from the abstract.' });
         return;
       }
 
-      // Take top 60 journals by paper frequency
-      var top60Ids = sortedIds.slice(0, 60);
+      // ── STEP 2: Resolve each concept to OpenAlex concept IDs ─────────────
+      // OpenAlex maintains a curated academic concept taxonomy with >65,000 concepts.
+      // Level 2-4 concepts are specific enough to identify a journal's scope.
+      setJSteps({ status: 'loading', msg: 'Mapping ' + concepts.length + ' research concepts to academic taxonomy…' });
 
-      // Step 4: Batch-fetch full journal records — IF, OA, APC, homepage, editorial topics — in one call
-      setJSteps({ status: 'loading', msg: 'Fetching Impact Factor data for ' + top60Ids.length + ' candidate journals…' });
-
-      var oaIds = top60Ids.map(function(id) { return id.split('/').pop(); }).join('|');
-      var sourcesRes = await fetch(
-        'https://api.openalex.org/sources?filter=ids.openalex:' + oaIds + '&per-page=60&mailto=support@f2yapps.com'
+      var conceptIdBatches = await Promise.all(
+        concepts.map(function(c) {
+          return fetch(
+            'https://api.openalex.org/concepts?search=' + encodeURIComponent(c) +
+            '&per-page=3&select=id,display_name,level,works_count&mailto=support@f2yapps.com'
+          )
+            .then(function(r){ return r.ok ? r.json() : { results:[] }; })
+            .then(function(d){
+              return (d.results || [])
+                .filter(function(r){ return r.level >= 1 && r.level <= 4; })
+                .slice(0, 2)
+                .map(function(r){ return r.id.split('/').pop(); });
+            })
+            .catch(function(){ return []; });
+        })
       );
-      if (!sourcesRes.ok) throw new Error('Journal details fetch failed: HTTP ' + sourcesRes.status);
-      var fullSources = (await sourcesRes.json()).results || [];
 
-      // Attach frequency count and editorial topic names to each source record
-      fullSources.forEach(function(src) {
-        src._paperCount = journalFreq[src.id] || 0;
-        src._topicNames = (src.topics || []).slice(0, 6).map(function(t) { return t.display_name; });
+      var conceptIds = [];
+      conceptIdBatches.forEach(function(batch){
+        batch.forEach(function(id){
+          if (id && conceptIds.indexOf(id) === -1) conceptIds.push(id);
+        });
       });
 
-      // Step 5: Strict IF tier filter — no tolerance for wrong-tier results
-      var tierDef = IF_TIERS.find(function(t) { return t.key === (journalPrefs.ifTier || 'any'); }) || IF_TIERS[0];
-      var eligibleJournals = fullSources;
+      if (conceptIds.length === 0) {
+        setJSteps({ status: 'error', error: 'Could not resolve research concepts to academic taxonomy IDs. Please try again.' });
+        return;
+      }
+
+      // ── STEP 3: Fetch specialist journals directly by concept ─────────────
+      // Query OpenAlex sources (journals) filtered by concept IDs.
+      // This returns journals whose editorial scope actually covers these concepts —
+      // no papers needed as intermediary, no frequency-counting bias.
+      setJSteps({ status: 'loading', msg: 'Finding specialist journals for ' + conceptIds.length + ' concept IDs…' });
+
+      var conceptFilter = conceptIds.slice(0, 12).join('|');
+      var sourcesRes = await fetch(
+        'https://api.openalex.org/sources' +
+        '?filter=type:journal,x_concepts.id:' + conceptFilter +
+        '&sort=cited_by_count:desc&per-page=60' +
+        '&select=id,display_name,summary_stats,homepage_url,x_concepts,is_oa,apc_usd,apc_prices,host_organization_name,works_count,cited_by_count' +
+        '&mailto=support@f2yapps.com'
+      );
+      if (!sourcesRes.ok) throw new Error('OpenAlex journal fetch failed: HTTP ' + sourcesRes.status);
+      var rawJournals = (await sourcesRes.json()).results || [];
+
+      if (rawJournals.length === 0) {
+        setJSteps({ status: 'error', error: 'No specialist journals found in OpenAlex for these research concepts. Try "Any IF" or rephrase your abstract.' });
+        return;
+      }
+
+      // ── STEP 4: Score journals by concept alignment ───────────────────────
+      // Count how many of our target concept IDs appear in the journal's
+      // x_concepts profile, weighted by concept score (higher = more specialized).
+      rawJournals.forEach(function(j){
+        var matchCount = 0;
+        var alignScore = 0;
+        (j.x_concepts || []).forEach(function(jc){
+          var jcId = jc.id.split('/').pop();
+          if (conceptIds.indexOf(jcId) !== -1) {
+            matchCount++;
+            alignScore += (jc.score || 0);
+          }
+        });
+        j._matchCount  = matchCount;
+        j._alignScore  = alignScore;
+        // Topic names for display (top 6 from journal's concept profile)
+        j._topicNames  = (j.x_concepts || []).slice(0, 6).map(function(c){ return c.display_name; });
+      });
+
+      // Primary sort: most concepts matched → highest alignment score → most cited overall
+      rawJournals.sort(function(a, b){
+        if (b._matchCount !== a._matchCount) return b._matchCount - a._matchCount;
+        if (Math.abs(b._alignScore - a._alignScore) > 0.01) return b._alignScore - a._alignScore;
+        return (b.cited_by_count || 0) - (a.cited_by_count || 0);
+      });
+
+      // ── STEP 5: IF tier filter ────────────────────────────────────────────
+      var tierDef = IF_TIERS.find(function(t){ return t.key === (journalPrefs.ifTier || 'any'); }) || IF_TIERS[0];
+      var eligibleJournals = rawJournals;
 
       if (tierDef.key !== 'any') {
-        eligibleJournals = fullSources.filter(function(j) {
+        eligibleJournals = rawJournals.filter(function(j){
           var ifVal = (j.summary_stats || {})['2yr_mean_citedness'];
           if (ifVal == null) return false;
           if (tierDef.min !== null && ifVal < tierDef.min) return false;
@@ -2708,39 +2744,34 @@ function App() {
         if (eligibleJournals.length === 0) {
           setJSteps({
             status: 'error',
-            error: 'Among the ' + fullSources.length + ' journals that published papers on this topic, none have a verified OpenAlex IF in ' + tierDef.range + '. Try "Any IF" to see all results, then filter manually.'
+            error: 'Among ' + rawJournals.length + ' specialist journals found, none have a verified OpenAlex IF in ' + tierDef.range + '. Try "Any IF" to see all matches.'
           });
           return;
         }
       }
 
-      // OA filter
       if (journalPrefs.access === 'oa') {
-        var oaFiltered = eligibleJournals.filter(function(j) { return j.is_oa === true; });
+        var oaFiltered = eligibleJournals.filter(function(j){ return j.is_oa === true; });
         if (oaFiltered.length === 0) {
-          setJSteps({ status: 'error', error: 'No open-access journals in this IF tier published papers on this topic. Remove the OA filter to see all matches.' });
+          setJSteps({ status: 'error', error: 'No open-access journals found in this IF tier for your topic. Remove the OA filter to see all matches.' });
           return;
         }
         eligibleJournals = oaFiltered;
       }
 
-      // Step 6: Sort by paper frequency (topic relevance signal), then IF
-      eligibleJournals.sort(function(a, b) {
-        var freqDiff = (b._paperCount || 0) - (a._paperCount || 0);
-        if (freqDiff !== 0) return freqDiff;
-        var ifA = (a.summary_stats || {})['2yr_mean_citedness'] || 0;
-        var ifB = (b.summary_stats || {})['2yr_mean_citedness'] || 0;
-        return ifB - ifA;
-      });
+      // Pass top 20 most-aligned journals to AI — enough choice without overwhelming context
+      var journalPool = eligibleJournals.slice(0, 20);
 
-      var journalPool = eligibleJournals.slice(0, 15);
+      // ── STEP 6: AI scope-matches abstract against candidate journals ───────
+      // The AI sees the abstract + each journal's verified IF + concept profile.
+      // It uses its training knowledge of journal aims & scope to rank by fit —
+      // not paper counts, not general prestige, but actual scope alignment.
       var ifFilterNote = tierDef.key !== 'any'
-        ? journalPool.length + ' journals with verified OpenAlex IF ' + tierDef.range + ' — drawn from ' + sortedIds.length + ' journals that published papers on this topic.'
-        : sortedIds.length + ' unique journals identified from publication history across ' + queries.length + ' search angles.';
+        ? eligibleJournals.length + ' specialist journals with verified OpenAlex IF ' + tierDef.range
+        : rawJournals.length + ' specialist journals identified via academic concept taxonomy';
 
-      // Step 7: AI ranks the pool — it sees paper count, IF, APC, and editorial topics for each journal
-      setJSteps({ status: 'loading', msg: 'AI ranking ' + journalPool.length + ' candidate journals for your specific paper…' });
-      var p2 = promptJournal2(abstract, kwResult.field || '', queries.join(' | '), journalPool, journalPrefs, ifFilterNote, paperType);
+      setJSteps({ status: 'loading', msg: 'AI matching abstract against journal aims & scope…' });
+      var p2 = promptJournal2(abstract, field, concepts.join(', '), journalPool, journalPrefs, ifFilterNote, paperType);
       var ranked;
       try {
         ranked = await aiJson(p2.system, p2.user);
@@ -2749,12 +2780,12 @@ function App() {
         return;
       }
 
-      // Step 8: Override every AI IF value with verified OpenAlex data — AI never sets IF
-      var enriched = (ranked.journals || []).map(function(j) {
-        var match = journalPool.find(function(o) {
+      // ── STEP 7: Override every AI IF value with verified OpenAlex data ─────
+      var enriched = (ranked.journals || []).map(function(j){
+        var match = journalPool.find(function(o){
           return o.display_name && j.name &&
             o.display_name.toLowerCase().trim() === j.name.toLowerCase().trim();
-        }) || journalPool.find(function(o) {
+        }) || journalPool.find(function(o){
           return o.display_name && j.name && (
             o.display_name.toLowerCase().includes(j.name.toLowerCase()) ||
             j.name.toLowerCase().includes(o.display_name.toLowerCase())
@@ -2762,17 +2793,23 @@ function App() {
         });
         var verifiedIF = match ? ((match.summary_stats || {})['2yr_mean_citedness'] || null) : null;
         return Object.assign({}, j, {
-          impact_factor: verifiedIF !== null ? verifiedIF : j.impact_factor,
-          if_verified: verifiedIF !== null,
-          homepage_url: (match && match.homepage_url) || null,
-          openalex_url: match ? (match.id || '').replace('https://api.openalex.org/', 'https://openalex.org/') : null,
-          paper_count: match ? (match._paperCount || 0) : 0,
+          impact_factor:  verifiedIF !== null ? verifiedIF : j.impact_factor,
+          if_verified:    verifiedIF !== null,
+          homepage_url:   (match && match.homepage_url) || null,
+          openalex_url:   match ? (match.id || '').replace('https://api.openalex.org/', 'https://openalex.org/') : null,
+          paper_count:    match ? (match._matchCount || 0) : 0,
           journal_topics: match ? (match._topicNames || []) : [],
           if_filter_note: ifFilterNote || null,
         });
       });
 
-      setJSteps({ status: 'done', data: enriched, ifFilterNote: ifFilterNote, totalFound: sortedIds.length, searchAngles: queries });
+      setJSteps({
+        status: 'done',
+        data: enriched,
+        ifFilterNote: ifFilterNote,
+        totalFound: rawJournals.length,
+        searchAngles: concepts,   // reuse field — now shows research concepts
+      });
 
     } catch(outerErr) {
       setJSteps({ status: 'error', error: outerErr.message });
@@ -3545,7 +3582,7 @@ function App() {
         <StepCard num={1} title="Journal Recommendations" status="done">
           {journalSteps.searchAngles && journalSteps.searchAngles.length > 0 && (
             <div style={{ fontSize:'.76rem', background:'#f5f2eb', border:'1px solid var(--border)', borderRadius:'7px', padding:'.45rem .75rem', marginBottom:'.5rem', color:'var(--muted)' }}>
-              <strong style={{ color:'var(--ink)' }}>Search angles:</strong>{' '}
+              <strong style={{ color:'var(--ink)' }}>Research concepts:</strong>{' '}
               {journalSteps.searchAngles.map(function(q, i) {
                 return <span key={i} style={{ display:'inline-block', background:'var(--card)', border:'1px solid var(--border)', borderRadius:'4px', padding:'.05rem .4rem', marginRight:'.3rem', marginTop:'.2rem', color:'var(--ink)' }}>{q}</span>;
               })}
@@ -3553,7 +3590,7 @@ function App() {
           )}
           {journalSteps.totalFound > 0 && (
             <div style={{ fontSize:'.76rem', color:'var(--muted)', marginBottom:'.5rem' }}>
-              {journalSteps.totalFound} unique journals identified from publication history · top {(journalSteps.data || []).length} shown after ranking
+              {journalSteps.totalFound} specialist journals found via OpenAlex concept taxonomy · top {(journalSteps.data || []).length} ranked by scope fit
             </div>
           )}
           {journalSteps.ifFilterNote && (
