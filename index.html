@@ -177,29 +177,7 @@ a:hover { text-decoration: underline; }
 .key-panel-compact .kp-steps a { color: var(--accent); }
 .key-panel-compact .kp-note { font-size: .7rem; color: var(--muted); margin-top: .45rem; font-style: italic; }
 
-/* Rate-limit hint */
-.rate-limit-hint {
-  background: #fff8f0;
-  border: 1px solid rgba(196,84,26,.3);
-  border-radius: var(--r);
-  padding: .7rem 1rem;
-  margin-bottom: 1.25rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: .75rem;
-  flex-wrap: wrap;
-  animation: fadeUp .2s ease;
-}
-.rate-limit-hint p { margin: 0; font-size: .82rem; line-height: 1.4; }
-.rate-limit-hint p strong { color: var(--accent); }
-.rate-limit-hint .rl-btn {
-  background: var(--accent); color: #fff; border: none;
-  border-radius: var(--r); font-family: var(--sans);
-  font-size: .78rem; padding: .35rem .85rem;
-  cursor: pointer; white-space: nowrap;
-}
-.rate-limit-hint .rl-btn:hover { opacity: .88; }
+
 
 /* Model picker */
 .model-picker { display: grid; grid-template-columns: 1fr 1fr; gap: .65rem; }
@@ -598,6 +576,28 @@ textarea { height: 160px; resize: vertical; line-height: 1.7; }
 
 /* Alerts */
 .error-box { background: #fff5f5; border: 1px solid #f5c2c2; border-radius: var(--r); padding: .7rem .9rem; font-size: .82rem; color: #8b2020; }
+.error-key-hint {
+  margin-top: .5rem;
+  background: #fff8f0;
+  border: 1px solid rgba(196,84,26,.25);
+  border-radius: var(--r);
+  padding: .6rem .9rem;
+  font-size: .8rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+.error-key-hint span { color: var(--ink); line-height: 1.4; }
+.error-key-hint strong { color: var(--accent); }
+.error-key-hint button {
+  background: var(--accent); color: #fff; border: none;
+  border-radius: var(--r); font-family: var(--sans);
+  font-size: .76rem; padding: .3rem .75rem;
+  cursor: pointer; white-space: nowrap;
+}
+.error-key-hint button:hover { opacity: .88; }
 .warn-box  { background: #fffbee; border: 1px solid #f0e0a0; border-radius: var(--r); padding: .55rem .85rem; font-size: .78rem; color: #7a6000; margin-bottom: .75rem; }
 
 /* Divider */
@@ -2564,7 +2564,7 @@ function FullPaperReport({ fpResult, paperType }) {
             </div>
             <div className="fp-section-body">
               {r.error
-                ? <div className="error-box">{r.error}</div>
+                ? <ErrorBox msg={r.error} onAddKey={openKeyPanel} hasKey={!!groqKey} />
                 : <ChapterResult data={r.data} chapterType={sec.key} />
               }
             </div>
@@ -2572,6 +2572,31 @@ function FullPaperReport({ fpResult, paperType }) {
         );
       })}
     </>
+  );
+}
+
+function _isRateLimitMsg(msg) {
+  var m = (msg || '').toLowerCase();
+  return m.includes('rate') || m.includes('capacity') || m.includes('quota') || m.includes('limit exceeded') || m.includes('too many') || m.includes('429');
+}
+
+function ErrorBox({ msg, onAddKey, hasKey }) {
+  var rl = _isRateLimitMsg(msg);
+  return (
+    <div>
+      <ErrorBox msg={msg} onAddKey={openKeyPanel} hasKey={!!groqKey} />
+      {rl && !hasKey && (
+        <div className="error-key-hint">
+          <span>You can use your own <strong>free Groq API key</strong> to avoid this limit - no credit card needed.</span>
+          <button onClick={onAddKey}>Add free key</button>
+        </div>
+      )}
+      {rl && hasKey && (
+        <div className="error-key-hint">
+          <span>Your API key also hit its limit. Wait a moment, or check your <strong>Groq quota</strong> at console.groq.com.</span>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -2622,19 +2647,19 @@ function App() {
   const [groqKeyInput, setGroqKeyInput] = useState(window._groqKey || '');
   const [showKeyPanel, setShowKeyPanel] = useState(false);
   const [showSteps, setShowSteps]       = useState(false);
-  const [rateLimitHit, setRateLimitHit] = useState(false);
 
   useEffect(function() {
-    window._onRateLimit = function() { setRateLimitHit(true); setShowKeyPanel(true); };
+    window._onRateLimit = function() { setShowKeyPanel(true); };
     return function() { window._onRateLimit = null; };
   }, []);
+
+  const openKeyPanel = function() { setShowKeyPanel(true); setShowSteps(false); };
 
   function saveGroqKey() {
     const k = groqKeyInput.trim();
     window._groqKey = k || null;
     if (k) { localStorage.setItem('titlesmart_groq_key', k); } else { localStorage.removeItem('titlesmart_groq_key'); }
     setGroqKey(k);
-    setRateLimitHit(false);
     if (k) setShowKeyPanel(false);
   }
 
@@ -3235,14 +3260,6 @@ function App() {
         </button>
       </div>
 
-      {/* ── Rate-limit hint (appears only when limit is hit) ── */}
-      {rateLimitHit && !groqKey && (
-        <div className="rate-limit-hint">
-          <p><strong>Usage limit reached.</strong> Add your own free Groq API key to keep going - takes 2 minutes, no credit card needed.</p>
-          <button className="rl-btn" onClick={function(){ setShowKeyPanel(true); setRateLimitHit(false); }}>Add free key</button>
-        </div>
-      )}
-
       {/* ── Compact key panel ── */}
       {showKeyPanel && (
         <div className="key-panel-compact">
@@ -3596,7 +3613,7 @@ function App() {
       {mode === 'title' && s[1] && (
         <StepCard num={1} title="Field Detection" status={s[1].status}>
           {s[1].status === 'loading' && <Dots text="Identifying field and keywords…" />}
-          {s[1].status === 'error'   && <div className="error-box">{s[1].error}</div>}
+          {s[1].status === 'error'   && <ErrorBox msg={s[1].error} onAddKey={openKeyPanel} hasKey={!!groqKey} />}
           {s[1].status === 'done'    && <FieldDisplay data={s[1].data} />}
         </StepCard>
       )}
@@ -3606,7 +3623,7 @@ function App() {
           {s[2].status === 'loading' && (
             <Dots text={s[2].msg || 'Searching Semantic Scholar for top cited papers…'} />
           )}
-          {s[2].status === 'error' && <div className="error-box">{s[2].error}</div>}
+          {s[2].status === 'error' && <ErrorBox msg={s[2].error} onAddKey={openKeyPanel} hasKey={!!groqKey} />}
           {s[2].status === 'warn'  && <div className="warn-box">{s[2].error}</div>}
           {s[2].status === 'done'  && (
             <LiteratureDisplay papers={s[2].data} relevantSet={relevantSet} />
@@ -3617,7 +3634,7 @@ function App() {
       {mode === 'title' && s[3] && (
         <StepCard num={3} title="Citation Mining Report" status={s[3].status}>
           {s[3].status === 'loading' && <Dots text="Mining citation patterns…" />}
-          {s[3].status === 'error'   && <div className="error-box">{s[3].error}</div>}
+          {s[3].status === 'error'   && <ErrorBox msg={s[3].error} onAddKey={openKeyPanel} hasKey={!!groqKey} />}
           {s[3].status === 'done'    && (
             <MiningDisplay data={s[3].data} relevance={s[3].relevance} papers={(s[2] && s[2].data) || []} />
           )}
@@ -3627,7 +3644,7 @@ function App() {
       {mode === 'title' && s[4] && (
         <StepCard num={4} title="Abstract Decomposition" status={s[4].status}>
           {s[4].status === 'loading' && <Dots text="Decomposing your abstract…" />}
-          {s[4].status === 'error'   && <div className="error-box">{s[4].error}</div>}
+          {s[4].status === 'error'   && <ErrorBox msg={s[4].error} onAddKey={openKeyPanel} hasKey={!!groqKey} />}
           {s[4].status === 'done'    && <DecompDisplay data={s[4].data} />}
         </StepCard>
       )}
@@ -3635,7 +3652,7 @@ function App() {
       {mode === 'title' && s[5] && (
         <StepCard num={5} title="Title Recommendations" status={s[5].status}>
           {s[5].status === 'loading' && <Dots text="Generating and scoring titles…" />}
-          {s[5].status === 'error'   && <div className="error-box">{s[5].error}</div>}
+          {s[5].status === 'error'   && <ErrorBox msg={s[5].error} onAddKey={openKeyPanel} hasKey={!!groqKey} />}
           {s[5].status === 'done'    && (s[5].data || []).map((item, i) => (
             <TitleCard key={i} item={item} isWinner={false} />
           ))}
@@ -3645,7 +3662,7 @@ function App() {
       {mode === 'title' && s[6] && (
         <StepCard num={6} title="Winner Declaration" status={s[6].status}>
           {s[6].status === 'loading' && <Dots text="Selecting winner…" />}
-          {s[6].status === 'error'   && <div className="error-box">{s[6].error}</div>}
+          {s[6].status === 'error'   && <ErrorBox msg={s[6].error} onAddKey={openKeyPanel} hasKey={!!groqKey} />}
           {s[6].status === 'done' && s[6].data && (
             <div className="winner-wrap">
               <div className="winner-banner">★ Recommended Title</div>
@@ -3675,7 +3692,7 @@ function App() {
       )}
       {mode === 'journal' && journalSteps !== null && journalSteps.status === 'error' && (
         <StepCard num={1} title="Journal Search" status="error">
-          <div className="error-box">{journalSteps.error}</div>
+          <ErrorBox msg={journalSteps.error} onAddKey={openKeyPanel} hasKey={!!groqKey} />
         </StepCard>
       )}
       {mode === 'journal' && journalSteps !== null && journalSteps.status === 'done' && (
@@ -3714,7 +3731,7 @@ function App() {
       )}
       {mode === 'abstract' && abstractResult !== null && abstractResult.status === 'error' && (
         <StepCard num={1} title="Abstract Analysis" status="error">
-          <div className="error-box">{abstractResult.error}</div>
+          <ErrorBox msg={abstractResult.error} onAddKey={openKeyPanel} hasKey={!!groqKey} />
         </StepCard>
       )}
       {mode === 'abstract' && abstractResult !== null && abstractResult.status === 'done' && (
@@ -3729,7 +3746,7 @@ function App() {
         <StepCard num={1} title="Conclusion Analysis" status="loading"><Dots text="Evaluating your conclusion…" /></StepCard>
       )}
       {mode === 'conclusion' && conclusionResult !== null && conclusionResult.status === 'error' && (
-        <StepCard num={1} title="Conclusion Analysis" status="error"><div className="error-box">{conclusionResult.error}</div></StepCard>
+        <StepCard num={1} title="Conclusion Analysis" status="error"><ErrorBox msg={conclusionResult.error} onAddKey={openKeyPanel} hasKey={!!groqKey} /></StepCard>
       )}
       {mode === 'conclusion' && conclusionResult !== null && conclusionResult.status === 'done' && (
         <StepCard num={1} title="Conclusion Feedback" status="done"><ConclusionResult data={conclusionResult.data} /></StepCard>
@@ -3743,7 +3760,7 @@ function App() {
         </StepCard>
       )}
       {mode === 'chapter' && chapterResult !== null && chapterResult.status === 'error' && (
-        <StepCard num={1} title="Chapter Evaluation" status="error"><div className="error-box">{chapterResult.error}</div></StepCard>
+        <StepCard num={1} title="Chapter Evaluation" status="error"><ErrorBox msg={chapterResult.error} onAddKey={openKeyPanel} hasKey={!!groqKey} /></StepCard>
       )}
       {mode === 'chapter' && chapterResult !== null && chapterResult.status === 'done' && (
         <StepCard num={1} title={(CHAPTER_FRAMEWORKS[chapterResult.chapterType] || {}).label + ' - ' + (CHAPTER_FRAMEWORKS[chapterResult.chapterType] || {}).name + ' Feedback'} status="done">
@@ -3757,7 +3774,7 @@ function App() {
         <StepCard num={1} title="Research Question Evaluation" status="loading"><Dots text="Evaluating against FINER criteria…" /></StepCard>
       )}
       {mode === 'research-q' && rqResult !== null && rqResult.status === 'error' && (
-        <StepCard num={1} title="Research Question Evaluation" status="error"><div className="error-box">{rqResult.error}</div></StepCard>
+        <StepCard num={1} title="Research Question Evaluation" status="error"><ErrorBox msg={rqResult.error} onAddKey={openKeyPanel} hasKey={!!groqKey} /></StepCard>
       )}
       {mode === 'research-q' && rqResult !== null && rqResult.status === 'done' && (
         <StepCard num={1} title="FINER Feedback" status="done"><ResearchQResult data={rqResult.data} /></StepCard>
@@ -3769,7 +3786,7 @@ function App() {
         <StepCard num={1} title="Contribution Analysis" status="loading"><Dots text="Identifying and evaluating novelty claims…" /></StepCard>
       )}
       {mode === 'contribution' && contribResult !== null && contribResult.status === 'error' && (
-        <StepCard num={1} title="Contribution Analysis" status="error"><div className="error-box">{contribResult.error}</div></StepCard>
+        <StepCard num={1} title="Contribution Analysis" status="error"><ErrorBox msg={contribResult.error} onAddKey={openKeyPanel} hasKey={!!groqKey} /></StepCard>
       )}
       {mode === 'contribution' && contribResult !== null && contribResult.status === 'done' && (
         <StepCard num={1} title="Contribution Clarity Report" status="done"><ContributionResult data={contribResult.data} /></StepCard>
@@ -3781,7 +3798,7 @@ function App() {
         <StepCard num={1} title="Keywords Analysis" status="loading"><Dots text={kwResult.msg || 'Analysing keywords…'} /></StepCard>
       )}
       {mode === 'keywords' && kwResult !== null && kwResult.status === 'error' && (
-        <StepCard num={1} title="Keywords Analysis" status="error"><div className="error-box">{kwResult.error}</div></StepCard>
+        <StepCard num={1} title="Keywords Analysis" status="error"><ErrorBox msg={kwResult.error} onAddKey={openKeyPanel} hasKey={!!groqKey} /></StepCard>
       )}
       {mode === 'keywords' && kwResult !== null && kwResult.status === 'done' && (
         <StepCard num={1} title="Keywords Report" status="done">
@@ -3821,7 +3838,7 @@ function App() {
 
       {mode === 'full-paper' && fullPaperResult !== null && fullPaperResult.status === 'error' && (
         <StepCard num={1} title="Full Paper Analysis" status="error">
-          <div className="error-box">{fullPaperResult.error}</div>
+          <ErrorBox msg={fullPaperResult.error} onAddKey={openKeyPanel} hasKey={!!groqKey} />
         </StepCard>
       )}
 
