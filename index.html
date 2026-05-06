@@ -1286,9 +1286,8 @@ function promptJournal2(abstract, field, concepts, journalData, prefs, ifFilterN
     const citedness = stats['2yr_mean_citedness'] != null ? stats['2yr_mean_citedness'] : null;
     const ifStr = citedness !== null ? citedness.toFixed(2) : 'N/A';
     const apc = j.apc_usd ? '$' + j.apc_usd : (j.apc_prices && j.apc_prices.length > 0 ? '$' + j.apc_prices[0].price : 'APC unknown');
-    const conceptAlign = j._matchCount ? ' | concepts matched: ' + j._matchCount : '';
     const scopeTopics = j._topicNames && j._topicNames.length > 0 ? ' | editorial scope: ' + j._topicNames.slice(0, 5).join(', ') : '';
-    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF ' + ifStr + ' | APC:' + apc + ' | ' + (j.host_organization_name || j.publisher || 'unknown publisher') + conceptAlign + scopeTopics;
+    return (i + 1) + '. "' + j.display_name + '" | ' + oa + ' | IF ' + ifStr + ' | APC:' + apc + ' | ' + (j.host_organization_name || j.publisher || 'unknown publisher') + scopeTopics;
   }).join('\n');
 
   const access = prefs.access && prefs.access !== 'any' ? prefs.access : 'no preference';
@@ -2693,33 +2692,29 @@ function App() {
 
       setJSteps({ status: 'loading', msg: 'Finding specialist journals…' });
 
-      var SELECT_FIELDS = 'id,display_name,summary_stats,homepage_url,topics,is_oa,apc_usd,apc_prices,host_organization_name,works_count,cited_by_count';
+      var SELECT_FIELDS = 'id,display_name,summary_stats,homepage_url,topics,is_oa,apc_usd,apc_prices,host_organization_name';
 
-      // Track A: topic-ID filter
+      // Track A: journals indexed under these research topics (no citation sort — relevance only)
       var trackAPromise = conceptIds.length > 0 ? fetch(
         'https://api.openalex.org/sources' +
         '?filter=type:journal,topics.id:' + conceptIds.slice(0, 12).join('|') +
-        '&sort=cited_by_count:desc&per-page=80' +
+        '&per-page=80' +
         '&select=' + SELECT_FIELDS + '&mailto=support@f2yapps.com'
       ).then(function(r){ return r.ok ? r.json() : { results: [] }; })
        .then(function(d){ return d.results || []; })
        .catch(function(){ return []; }) : Promise.resolve([]);
 
-      // Track B: name/text search for each AI concept (top 4 concepts, 15 results each)
+      // Track B: journals whose NAME contains the abstract's own keywords
+      // e.g. abstract says "agricultural water management" → finds that exact journal
       var trackBPromise = Promise.all(
-        concepts.slice(0, 4).map(function(c, ci) {
+        concepts.slice(0, 4).map(function(c) {
           return fetch(
             'https://api.openalex.org/sources' +
             '?search=' + encodeURIComponent(c) +
-            '&filter=type:journal&per-page=15&sort=cited_by_count:desc' +
+            '&filter=type:journal&per-page=15' +
             '&select=' + SELECT_FIELDS + '&mailto=support@f2yapps.com'
           ).then(function(r){ return r.ok ? r.json() : { results: [] }; })
-           .then(function(d){
-             return (d.results || []).map(function(j){
-               j._nameMatchCount = (j._nameMatchCount || 0) + 1;
-               return j;
-             });
-           })
+           .then(function(d){ return d.results || []; })
            .catch(function(){ return []; });
         })
       ).then(function(arrays) {
@@ -2729,6 +2724,7 @@ function App() {
             if (seen[j.id]) {
               seen[j.id]._nameMatchCount = (seen[j.id]._nameMatchCount || 0) + 1;
             } else {
+              j._nameMatchCount = 1;
               seen[j.id] = j;
               combined.push(j);
             }
@@ -2740,12 +2736,12 @@ function App() {
       var trackA = await trackAPromise;
       var trackB = await trackBPromise;
 
-      // Merge: build unified map, mark journals found via name search
+      // Merge both tracks
       var journalMap = {};
       trackA.forEach(function(j){ journalMap[j.id] = j; });
       trackB.forEach(function(j){
         if (journalMap[j.id]) {
-          journalMap[j.id]._nameMatchCount = j._nameMatchCount || 1;
+          journalMap[j.id]._nameMatchCount = (journalMap[j.id]._nameMatchCount || 0) + (j._nameMatchCount || 1);
         } else {
           journalMap[j.id] = j;
         }
@@ -2757,31 +2753,27 @@ function App() {
         return;
       }
 
-      // ── STEP 4: Score journals by combined alignment ──────────────────────
-      // topic match score + strong boost for journals found by name search
-      // (name match = journal explicitly specializes in this exact research area)
+      // ── STEP 4: Rank candidates for the AI pool ───────────────────────────
+      // Signal 1 (strongest): journal name contains abstract keywords → most obviously relevant
+      // Signal 2: how many research topic IDs overlap with this journal
+      // NO citation counts — scope matching is the AI's job, not JS's
       rawJournals.forEach(function(j){
-        var matchCount = 0;
-        var alignScore = 0;
+        var topicMatch = 0;
         (j.topics || []).forEach(function(jt){
-          var jtId = jt.id.split('/').pop();
-          if (conceptIds.indexOf(jtId) !== -1) {
-            matchCount++;
-            alignScore += (jt.count || 1);
-          }
+          if (conceptIds.indexOf(jt.id.split('/').pop()) !== -1) topicMatch++;
         });
-        // Name-match journals surface first — they're the most obviously relevant
-        var nameBoost = j._nameMatchCount || 0;
-        j._matchCount  = matchCount + nameBoost * 3;
-        j._alignScore  = alignScore + nameBoost * 500;
-        j._topicNames  = (j.topics || []).slice(0, 6).map(function(t){ return t.display_name; });
+        j._nameMatchCount = j._nameMatchCount || 0;
+        j._topicMatch     = topicMatch;
+        j._topicNames     = (j.topics || []).slice(0, 6).map(function(t){ return t.display_name; });
       });
 
-      // Primary sort: most concepts matched → highest alignment score → most cited overall
+      // Sort: name-matched first, then topic overlap, then IF (user's stated preference)
       rawJournals.sort(function(a, b){
-        if (b._matchCount !== a._matchCount) return b._matchCount - a._matchCount;
-        if (Math.abs(b._alignScore - a._alignScore) > 0.01) return b._alignScore - a._alignScore;
-        return (b.cited_by_count || 0) - (a.cited_by_count || 0);
+        if (b._nameMatchCount !== a._nameMatchCount) return b._nameMatchCount - a._nameMatchCount;
+        if (b._topicMatch    !== a._topicMatch)    return b._topicMatch    - a._topicMatch;
+        var ifA = (a.summary_stats || {})['2yr_mean_citedness'] || 0;
+        var ifB = (b.summary_stats || {})['2yr_mean_citedness'] || 0;
+        return ifB - ifA;
       });
 
       // ── STEP 5: IF tier filter ────────────────────────────────────────────
@@ -2814,8 +2806,8 @@ function App() {
         eligibleJournals = oaFiltered;
       }
 
-      // Pass top 20 most-aligned journals to AI — enough choice without overwhelming context
-      var journalPool = eligibleJournals.slice(0, 20);
+      // Pass top 30 candidates to AI — AI ranks by scope, JS only filtered by IF
+      var journalPool = eligibleJournals.slice(0, 30);
 
       // ── STEP 6: AI scope-matches abstract against candidate journals ───────
       // The AI sees the abstract + each journal's verified IF + concept profile.
