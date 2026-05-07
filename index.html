@@ -811,6 +811,86 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
   .mode-tab { font-size: .73rem; padding: .55rem .3rem; }
   .journal-meta { grid-template-columns: repeat(3,1fr); }
 }
+
+/* ── Paper Summarizer ── */
+.sum-takeaway {
+  border: 2px solid var(--accent);
+  border-radius: var(--r);
+  overflow: hidden;
+  margin-bottom: 1.25rem;
+}
+.sum-takeaway-head {
+  background: var(--accent);
+  color: #fff;
+  padding: .65rem 1rem;
+  font-family: var(--mono);
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+.sum-one-line {
+  padding: .9rem 1rem .65rem;
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  line-height: 1.55;
+  color: var(--ink);
+  font-style: italic;
+  border-bottom: 1px solid #e8d5c4;
+  background: var(--hi);
+  margin: 0;
+}
+.sum-block-label {
+  font-family: var(--mono);
+  font-size: .63rem;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--muted);
+  padding: .65rem 1rem .1rem;
+  font-weight: 500;
+}
+.sum-block-text {
+  font-size: .86rem;
+  line-height: 1.68;
+  padding: .15rem 1rem .6rem;
+  margin: 0;
+  color: var(--ink);
+}
+.sum-findings-list {
+  margin: .1rem 0 .7rem;
+  padding: 0 1rem 0 2.2rem;
+  font-size: .84rem;
+  line-height: 1.72;
+  color: var(--ink);
+}
+.sum-findings-list li { margin-bottom: .2rem; }
+.sum-section-card {
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  margin-bottom: .75rem;
+  background: #fff;
+}
+.sum-section-head {
+  padding: .5rem .9rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: .7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+}
+.sum-section-body { padding: .75rem .9rem; }
+.sum-section-summary { font-size: .86rem; line-height: 1.68; color: var(--ink); margin: 0 0 .55rem; }
+.sum-key-points { margin: 0; padding-left: 1.25rem; }
+.sum-key-points li { font-size: .82rem; line-height: 1.6; color: var(--ink); margin-bottom: .18rem; }
+.sum-section-loading { padding: .75rem .9rem; }
+.sum-section-err { padding: .65rem .9rem; font-size: .81rem; color: #c0392b; font-style: italic; }
 </style>
 </head>
 <body>
@@ -1830,6 +1910,25 @@ function extractSectionTexts(fullText, headings) {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   PAPER SUMMARIZER PROMPTS
+   ───────────────────────────────────────────────────────────── */
+
+function promptSummarizeSection(sectionKey, text) {
+  var label = (CHAPTER_FRAMEWORKS[sectionKey] || {}).label || sectionKey;
+  return {
+    system: 'You are a clear academic research assistant. Summarize paper sections in plain, accessible language. Return only valid JSON, no markdown.',
+    user: 'Summarize the "' + label + '" section of this academic paper in plain language that any reader can understand — no jargon, no evaluation, just what it says.\n\nSECTION TEXT:\n"""\n' + text.slice(0, 6000) + '\n"""\n\nReturn JSON:\n{\n  "summary": "<2–4 sentences explaining what this section covers and its main content>",\n  "key_points": ["<concise point 1>", "<concise point 2>", "<concise point 3 if applicable>"]\n}',
+  };
+}
+
+function promptOverallTakeaway(paperText) {
+  return {
+    system: 'You are a senior researcher who reads academic papers and distils their essence into plain language. Return only valid JSON, no markdown.',
+    user: 'Read this academic paper and provide a comprehensive plain-language overview.\n\nPAPER (excerpt):\n"""\n' + paperText.slice(0, 12000) + '\n"""\n\nReturn JSON:\n{\n  "one_line": "<one compelling sentence capturing the bottom line of the paper>",\n  "what_it_is_about": "<2–3 sentences: topic, purpose, central research question>",\n  "key_findings": ["<main finding 1>", "<main finding 2>", "<main finding 3>"],\n  "main_contribution": "<what this paper adds to the field in 1–2 sentences>",\n  "practical_implications": "<how this is useful to practitioners or policy-makers>",\n  "limitations": "<main limitations or caveats mentioned in the paper>"\n}',
+  };
+}
+
+/* ─────────────────────────────────────────────────────────────
    SMALL UI ATOMS
    ───────────────────────────────────────────────────────────── */
 
@@ -2639,6 +2738,73 @@ function ErrorBox({ msg, onAddKey, hasKey }) {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   PAPER SUMMARIZER REPORT COMPONENT
+   ───────────────────────────────────────────────────────────── */
+
+function SummarizeReport({ result }) {
+  var takeaway  = result.takeaway  || null;
+  var sections  = result.sections  || [];
+  var summaries = result.summaries || {};
+
+  return (
+    <div>
+      {/* Overall takeaway */}
+      {takeaway && takeaway.status === 'loading' && (
+        <div className="sum-section-loading"><Dots text="Generating overall takeaway…" /></div>
+      )}
+      {takeaway && takeaway.status === 'error' && (
+        <div className="sum-section-err">Takeaway error: {takeaway.error}</div>
+      )}
+      {takeaway && takeaway.status === 'done' && (
+        <div className="sum-takeaway">
+          <div className="sum-takeaway-head">📖 General Takeaway</div>
+          <p className="sum-one-line">{takeaway.data.one_line}</p>
+          <div className="sum-block-label">What it's about</div>
+          <p className="sum-block-text">{takeaway.data.what_it_is_about}</p>
+          <div className="sum-block-label">Key Findings</div>
+          <ul className="sum-findings-list">
+            {(takeaway.data.key_findings || []).map(function(f, i) { return <li key={i}>{f}</li>; })}
+          </ul>
+          <div className="sum-block-label">Main Contribution</div>
+          <p className="sum-block-text">{takeaway.data.main_contribution}</p>
+          <div className="sum-block-label">Practical Implications</div>
+          <p className="sum-block-text">{takeaway.data.practical_implications}</p>
+          <div className="sum-block-label">Limitations</div>
+          <p className="sum-block-text" style={{ paddingBottom:'1rem' }}>{takeaway.data.limitations}</p>
+        </div>
+      )}
+
+      {/* Section-by-section summaries */}
+      {sections.map(function(sec) {
+        var label   = (CHAPTER_FRAMEWORKS[sec.key] || {}).label || sec.key;
+        var sumData = summaries[sec.key];
+        return (
+          <div key={sec.key} className="sum-section-card">
+            <div className="sum-section-head">{label}</div>
+            {!sumData && (
+              <div className="sum-section-loading"><Dots text={'Summarising ' + label + '…'} /></div>
+            )}
+            {sumData && sumData.error && (
+              <div className="sum-section-err">{sumData.error}</div>
+            )}
+            {sumData && sumData.data && (
+              <div className="sum-section-body">
+                <p className="sum-section-summary">{sumData.data.summary}</p>
+                {(sumData.data.key_points || []).length > 0 && (
+                  <ul className="sum-key-points">
+                    {(sumData.data.key_points || []).map(function(pt, i) { return <li key={i}>{pt}</li>; })}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
    MAIN APP
    ───────────────────────────────────────────────────────────── */
 
@@ -2679,6 +2845,11 @@ function App() {
   const [fullPaperResult, setFPResult]  = useState(null);
   const [fullPaperRunning, setFPRunning]= useState(false);
   const [fpDragOver, setFpDragOver]     = useState(false);
+  // Paper Summarizer
+  const [summarizeText, setSumText]     = useState('');
+  const [summarizeResult, setSumResult] = useState(null);
+  const [summarizeRunning, setSumRun]   = useState(false);
+  const [sumDragOver, setSumDragOver]   = useState(false);
 
   // API key
   const [groqKey, setGroqKey]           = useState(window._groqKey || '');
@@ -3244,6 +3415,113 @@ function App() {
     }
   }
 
+  async function handleSumFile(file) {
+    if (!file) return;
+    setSumText('');
+    var ext = file.name.split('.').pop().toLowerCase();
+    try {
+      if (ext === 'pdf') {
+        var buf = await file.arrayBuffer();
+        var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+        var texts = [];
+        for (var p = 1; p <= pdf.numPages; p++) {
+          var pg = await pdf.getPage(p);
+          var tc = await pg.getTextContent();
+          texts.push(tc.items.map(function(i) { return i.str; }).join(' '));
+        }
+        setSumText(texts.join('\n\n'));
+      } else if (ext === 'docx') {
+        var buf2 = await file.arrayBuffer();
+        var res2 = await mammoth.extractRawText({ arrayBuffer: buf2 });
+        setSumText(res2.value);
+      } else {
+        var text = await file.text();
+        setSumText(text);
+      }
+    } catch(e) {
+      setSumText('Error reading file: ' + e.message);
+    }
+  }
+
+  async function runSummarize() {
+    if (!summarizeText.trim()) return;
+    setSumRun(true);
+    setSumResult({ status: 'segmenting', sections: [], summaries: {}, takeaway: null });
+
+    try {
+      // Step 1: detect sections
+      var ps = promptSegment(summarizeText, paperType);
+      var segResult;
+      try {
+        segResult = await aiJson(ps.system, ps.user);
+      } catch(segErr) {
+        setSumResult({ status: 'error', error: 'Section detection failed: ' + segErr.message });
+        return;
+      }
+
+      var validKeys = CHAPTER_SETS[paperType] || CHAPTER_SETS['article'];
+      var validKeySet = {};
+      validKeys.forEach(function(k) { validKeySet[k] = true; });
+      var validHeadings = (segResult.sections || []).filter(function(sec) {
+        return sec.key && validKeySet[sec.key] && sec.heading;
+      });
+      var sections = extractSectionTexts(summarizeText, validHeadings);
+
+      if (sections.length === 0) {
+        setSumResult({
+          status: 'error',
+          error: 'Could not locate section headings. Make sure your paper has clear headings (e.g. "Introduction", "Methods", "Discussion"). For papers without headings, try pasting after adding a heading on each section.',
+        });
+        return;
+      }
+
+      setSumResult({ status: 'running', sections: sections, summaries: {}, takeaway: { status: 'loading' } });
+
+      // Step 2: overall takeaway + all section summaries in parallel
+      var takeawayPromise = (function() {
+        var pt = promptOverallTakeaway(summarizeText);
+        return aiJson(pt.system, pt.user)
+          .then(function(res) {
+            setSumResult(function(prev) {
+              return Object.assign({}, prev, { takeaway: { status: 'done', data: res } });
+            });
+          })
+          .catch(function(err) {
+            setSumResult(function(prev) {
+              return Object.assign({}, prev, { takeaway: { status: 'error', error: err.message } });
+            });
+          });
+      })();
+
+      var sectionPromises = sections.map(function(sec) {
+        var sp = promptSummarizeSection(sec.key, sec.text);
+        return aiJson(sp.system, sp.user)
+          .then(function(res) {
+            setSumResult(function(prev) {
+              var ns = Object.assign({}, prev.summaries);
+              ns[sec.key] = { data: res };
+              return Object.assign({}, prev, { summaries: ns });
+            });
+          })
+          .catch(function(err) {
+            setSumResult(function(prev) {
+              var ns = Object.assign({}, prev.summaries);
+              ns[sec.key] = { error: err.message };
+              return Object.assign({}, prev, { summaries: ns });
+            });
+          });
+      });
+
+      await Promise.all([takeawayPromise].concat(sectionPromises));
+      setSumResult(function(prev) { return Object.assign({}, prev, { status: 'done' }); });
+
+    } catch(e) {
+      setSumResult({ status: 'error', error: e.message });
+    } finally {
+      setSumRun(false);
+    }
+  }
+
   function reset() {
     setSteps({});
     setJSteps(null);
@@ -3254,12 +3532,14 @@ function App() {
     setContribRes(null);
     setKwResult(null);
     setFPResult(null);
+    setSumResult(null);
     setAbstract('');
     setConclusion('');
     setChapterText('');
     setRqText('');
     setKeywords('');
     setFPText('');
+    setSumText('');
     setRunning(false);
     setJRunning(false);
     setARunning(false);
@@ -3269,6 +3549,7 @@ function App() {
     setContribRun(false);
     setKwRunning(false);
     setFPRunning(false);
+    setSumRun(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -3357,6 +3638,7 @@ function App() {
           { key: 'title',        label: 'Title Recommender'   },
           { key: 'keywords',     label: 'Keywords Optimizer'  },
           { key: 'journal',      label: 'Journal Suggester'   },
+          { key: 'summarize',    label: 'Summarize Paper'      },
         ].map(function(m) {
           return (
             <button
@@ -3478,6 +3760,60 @@ function App() {
                     : ' Evaluating all sections…'}
                 </>
               : 'Analyse Full Paper'
+            }
+          </button>
+        </div>
+      )}
+
+      {/* ── Summarize Paper mode ── */}
+      {mode === 'summarize' && (
+        <div>
+          <p style={{ fontSize:'.84rem', color:'var(--muted)', marginBottom:'1rem', lineHeight:'1.6' }}>
+            Paste any paper, article, or report and the tool will summarise it <strong>section by section</strong> in plain language, then give you a <strong>general takeaway</strong> — key findings, contribution, implications, and limitations.
+          </p>
+          <div
+            className={'upload-zone' + (sumDragOver ? ' drag-over' : '')}
+            onClick={function() { var el = document.getElementById('sum-file-input'); if (el) el.click(); }}
+            onDragOver={function(e) { e.preventDefault(); setSumDragOver(true); }}
+            onDragLeave={function() { setSumDragOver(false); }}
+            onDrop={function(e) { e.preventDefault(); setSumDragOver(false); handleSumFile(e.dataTransfer.files[0]); }}
+          >
+            <input
+              id="sum-file-input"
+              type="file"
+              accept=".txt,.md,.pdf,.docx"
+              style={{ display:'none' }}
+              onChange={function(e) { handleSumFile(e.target.files[0]); e.target.value = ''; }}
+            />
+            <div className="upload-zone-text">Drop a file here, or click to browse</div>
+            <div className="upload-zone-hint">Supports .txt · .md · .pdf · .docx</div>
+          </div>
+          <label htmlFor="sum-text" style={{ display:'block', fontWeight:600, marginBottom:'.45rem' }}>
+            Paper text
+          </label>
+          <textarea
+            id="sum-text"
+            value={summarizeText}
+            onChange={function(e) { setSumText(e.target.value); }}
+            placeholder="Paste your paper here, or upload a file above — the tool will detect each section and summarise it in plain language…"
+            disabled={summarizeRunning}
+            style={{ height:'260px' }}
+          />
+          <div className={'word-count' + (summarizeText.trim().split(/\s+/).filter(Boolean).length > 24000 ? ' warn' : '')}>
+            {summarizeText.trim().split(/\s+/).filter(Boolean).length} words
+            {summarizeText.trim().split(/\s+/).filter(Boolean).length > 24000 ? ' — very long; first ~28 000 chars used for section detection' : ''}
+          </div>
+          <button
+            className="btn-primary"
+            onClick={runSummarize}
+            disabled={!summarizeText.trim() || summarizeRunning}
+            aria-busy={summarizeRunning}
+          >
+            {summarizeRunning
+              ? <><span className="dots" aria-hidden="true"><span/><span/><span/></span>
+                  {summarizeResult && summarizeResult.status === 'segmenting' ? ' Detecting sections…' : ' Summarising…'}
+                </>
+              : 'Summarise Paper'
             }
           </button>
         </div>
@@ -3889,6 +4225,34 @@ function App() {
         </StepCard>
       )}
 
+      {/* ── Summarize Paper results ── */}
+      {mode === 'summarize' && summarizeResult !== null && <hr className="div" />}
+
+      {mode === 'summarize' && summarizeResult !== null && summarizeResult.status === 'segmenting' && (
+        <StepCard num={1} title="Detecting Sections" status="loading">
+          <Dots text="Identifying section headings…" />
+        </StepCard>
+      )}
+
+      {mode === 'summarize' && summarizeResult !== null && summarizeResult.status === 'error' && (
+        <StepCard num={1} title="Summarise Paper" status="error">
+          <ErrorBox msg={summarizeResult.error} onAddKey={openKeyPanel} hasKey={!!groqKey} />
+        </StepCard>
+      )}
+
+      {mode === 'summarize' && summarizeResult !== null &&
+        (summarizeResult.status === 'running' || summarizeResult.status === 'done') && (
+        <StepCard
+          num={1}
+          title={summarizeResult.status === 'done'
+            ? (summarizeResult.sections || []).length + ' sections summarised'
+            : 'Summarising ' + (summarizeResult.sections || []).length + ' sections…'}
+          status={summarizeResult.status === 'done' ? 'done' : 'loading'}
+        >
+          <SummarizeReport result={summarizeResult} />
+        </StepCard>
+      )}
+
       <div ref={endRef} />
 
       {/* ── Footer ── */}
@@ -3909,7 +4273,7 @@ function App() {
             Llama 3.3 70B
           </span>
         </p>
-        {(Object.keys(s).length > 0 || journalSteps !== null || abstractResult !== null || conclusionResult !== null || chapterResult !== null || rqResult !== null || contribResult !== null || kwResult !== null || fullPaperResult !== null) && (
+        {(Object.keys(s).length > 0 || journalSteps !== null || abstractResult !== null || conclusionResult !== null || chapterResult !== null || rqResult !== null || contribResult !== null || kwResult !== null || fullPaperResult !== null || summarizeResult !== null) && (
           <button className="btn-ghost" onClick={reset}>↺ Start over</button>
         )}
       </footer>
