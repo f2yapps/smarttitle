@@ -3919,40 +3919,39 @@ function App() {
   }
 
   // Fetch a PDF and parse it with pdf.js.
-  // Tries direct fetch first (works for CORS-enabled OA servers),
-  // then falls back to two proxy services.
+  // Route priority: Vercel server proxy (bypasses Cloudflare + CORS) → direct (CORS-enabled servers) → public proxies.
   async function _fetchPdfFullText(pdfUrl) {
     var buf = null;
 
-    // 1. Direct fetch — PMC, Europe PMC, many OA publishers allow this
+    // 1. Vercel server-side proxy — runs on our own server, no CORS, not blocked by Cloudflare
     try {
-      var dr = await fetch(pdfUrl, { signal: AbortSignal.timeout(25000) });
-      if (dr.ok) {
-        var candidate = await dr.arrayBuffer();
-        if (candidate.byteLength > 5000) buf = candidate;
+      var vp = '/api/pdf-proxy?url=' + encodeURIComponent(pdfUrl);
+      var vr = await fetch(vp, { signal: AbortSignal.timeout(30000) });
+      if (vr.ok) {
+        var vc = await vr.arrayBuffer();
+        if (vc.byteLength > 5000) buf = vc;
       }
     } catch(_) {}
 
-    // 2. allorigins raw proxy
+    // 2. Direct fetch — works for CORS-enabled OA servers (arXiv, PMC, bioRxiv)
     if (!buf) {
       try {
-        var p1 = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(pdfUrl);
-        var r1 = await fetch(p1, { signal: AbortSignal.timeout(35000) });
-        if (r1.ok) {
-          var c1 = await r1.arrayBuffer();
-          if (c1.byteLength > 5000) buf = c1;
+        var dr = await fetch(pdfUrl, { signal: AbortSignal.timeout(25000) });
+        if (dr.ok) {
+          var dc = await dr.arrayBuffer();
+          if (dc.byteLength > 5000) buf = dc;
         }
       } catch(_) {}
     }
 
-    // 3. corsproxy.io fallback
+    // 3. allorigins raw proxy (free, may be blocked by Cloudflare)
     if (!buf) {
       try {
-        var p2 = 'https://corsproxy.io/?' + encodeURIComponent(pdfUrl);
-        var r2 = await fetch(p2, { signal: AbortSignal.timeout(35000) });
-        if (r2.ok) {
-          var c2 = await r2.arrayBuffer();
-          if (c2.byteLength > 5000) buf = c2;
+        var p1 = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(pdfUrl);
+        var r1 = await fetch(p1, { signal: AbortSignal.timeout(30000) });
+        if (r1.ok) {
+          var c1 = await r1.arrayBuffer();
+          if (c1.byteLength > 5000) buf = c1;
         }
       } catch(_) {}
     }
