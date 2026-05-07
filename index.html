@@ -1971,6 +1971,51 @@ function extractSectionTexts(fullText, headings) {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   PAPER SUMMARIZER — FLEXIBLE SECTION DETECTION
+   ───────────────────────────────────────────────────────────── */
+
+function promptSegmentFlex(text) {
+  return {
+    system: 'You are an expert at parsing documents. Find section headings. Return only valid JSON, no markdown.',
+    user: 'Find all section or chapter headings in this document — numbered sections, chapter titles, named sections (e.g. "1. Introduction", "Background", "Chapter 3", "Results and Discussion"). Return the exact heading text as it appears.\n\nDOCUMENT:\n"""\n' + text.slice(0, 28000) + '\n"""\n\nReturn JSON:\n{\n  "sections": [\n    { "heading": "<exact heading text as it appears in the document>" }\n  ]\n}\n\nIf no clear headings exist at all, return { "sections": [] }',
+  };
+}
+
+function extractSectionTextsFlex(fullText, headings) {
+  var positioned = [];
+  headings.forEach(function(h) {
+    if (!h.heading || h.heading.trim().length === 0) return;
+    var idx = fullText.indexOf(h.heading);
+    if (idx === -1) idx = fullText.toLowerCase().indexOf(h.heading.toLowerCase());
+    if (idx !== -1) positioned.push({ heading: h.heading, pos: idx });
+  });
+  positioned.sort(function(a, b) { return a.pos - b.pos; });
+  var seen = {};
+  positioned = positioned.filter(function(h) {
+    if (seen[h.pos]) return false;
+    seen[h.pos] = true;
+    return true;
+  });
+  var sections = [];
+  for (var i = 0; i < positioned.length; i++) {
+    var start = positioned[i].pos + positioned[i].heading.length;
+    var end   = i + 1 < positioned.length ? positioned[i + 1].pos : fullText.length;
+    var content = fullText.slice(start, end).trim();
+    if (content.length > 80) {
+      sections.push({ heading: positioned[i].heading, text: content });
+    }
+  }
+  return sections;
+}
+
+function promptSummarizeSectionFlex(heading, text) {
+  return {
+    system: 'You are a clear research assistant. Summarize document sections in plain language. Return only valid JSON, no markdown.',
+    user: 'Summarize the section titled "' + heading + '" in plain language that any reader can understand.\n\nSECTION TEXT:\n"""\n' + text.slice(0, 6000) + '\n"""\n\nReturn JSON:\n{\n  "summary": "<2–4 sentences explaining what this section says>",\n  "key_points": ["<concise point 1>", "<concise point 2>", "<concise point 3 if applicable>"]\n}',
+  };
+}
+
+/* ─────────────────────────────────────────────────────────────
    PAPER SUMMARIZER PROMPTS
    ───────────────────────────────────────────────────────────── */
 
@@ -2924,14 +2969,15 @@ function SummarizeReport({ result }) {
       )}
 
       {/* Section-by-section summaries */}
-      {sections.map(function(sec) {
-        var label   = (CHAPTER_FRAMEWORKS[sec.key] || {}).label || sec.key;
-        var sumData = summaries[sec.key];
+      {result.wholeDoc ? null : sections.map(function(sec) {
+        var id      = sec.key || sec.heading;
+        var label   = sec.heading || (CHAPTER_FRAMEWORKS[sec.key] || {}).label || sec.key;
+        var sumData = summaries[id];
         return (
-          <div key={sec.key} className="sum-section-card">
+          <div key={id} className="sum-section-card">
             <div className="sum-section-head">{label}</div>
             {!sumData && (
-              <div className="sum-section-loading"><Dots text={'Summarising ' + label + '…'} /></div>
+              <div className="sum-section-loading"><Dots text={'Summarising…'} /></div>
             )}
             {sumData && sumData.error && (
               <div className="sum-section-err">{sumData.error}</div>
@@ -3717,39 +3763,69 @@ function App() {
     setSumRun(true);
     setSumResult({ status: 'segmenting', sections: [], summaries: {}, takeaway: null });
     try {
-      var ps = promptSegment(text, paperType);
-      var segResult;
-      try { segResult = await aiJson(ps.system, ps.user); }
-      catch(segErr) { setSumResult({ status:'error', error:'Section detection failed: '+segErr.message }); return; }
 
-      var validKeys = CHAPTER_SETS[paperType] || CHAPTER_SETS['article'];
-      var validKeySet = {};
-      validKeys.forEach(function(k){ validKeySet[k]=true; });
-      var validHeadings = (segResult.sections||[]).filter(function(s){ return s.key && validKeySet[s.key] && s.heading; });
-      var sections = extractSectionTexts(text, validHeadings);
+      // ── Step 1: try standard academic section detection ────────────────────
+      var sections = [];
+      var useFlex  = false;
+      try {
+        var ps = promptSegment(text, paperType);
+        var seg = await aiJson(ps.system, ps.user);
+        var validKeys = CHAPTER_SETS[paperType] || CHAPTER_SETS['article'];
+        var vkSet = {};
+        validKeys.forEach(function(k){ vkSet[k] = true; });
+        var vh = (seg.sections || []).filter(function(s){ return s.key && vkSet[s.key] && s.heading; });
+        sections = extractSectionTexts(text, vh);
+      } catch(_) {}
 
+      // ── Step 2: flexible heading detection (any headings) ──────────────────
       if (sections.length === 0) {
-        setSumResult({ status:'error', error:'Could not locate section headings. Make sure the paper has clear headings (Introduction, Methods, Discussion…).' });
+        useFlex = true;
+        try {
+          var pf   = promptSegmentFlex(text);
+          var flex = await aiJson(pf.system, pf.user);
+          var fh   = (flex.sections || []).filter(function(s){ return s.heading && s.heading.trim(); });
+          sections = extractSectionTextsFlex(text, fh);
+        } catch(_) {}
+      }
+
+      // ── Step 3: no headings found — summarise whole document ───────────────
+      if (sections.length === 0) {
+        setSumResult({ status: 'running', sections: [], summaries: {}, takeaway: { status: 'loading' }, wholeDoc: true });
+        var pt0 = promptOverallTakeaway(text);
+        try {
+          var td = await aiJson(pt0.system, pt0.user);
+          setSumResult({ status: 'done', sections: [], summaries: {}, takeaway: { status: 'done', data: td }, wholeDoc: true });
+        } catch(e) {
+          setSumResult({ status: 'error', error: 'Summary failed: ' + e.message });
+        }
         return;
       }
-      setSumResult({ status:'running', sections:sections, summaries:{}, takeaway:{status:'loading'} });
+
+      // ── Step 4: section summaries + overall takeaway in parallel ───────────
+      setSumResult({ status: 'running', sections: sections, summaries: {}, takeaway: { status: 'loading' }, flex: useFlex });
 
       var tPromise = (function() {
         var pt = promptOverallTakeaway(text);
         return aiJson(pt.system, pt.user)
-          .then(function(res){ setSumResult(function(p){ return Object.assign({},p,{takeaway:{status:'done',data:res}}); }); })
-          .catch(function(e){  setSumResult(function(p){ return Object.assign({},p,{takeaway:{status:'error',error:e.message}}); }); });
+          .then(function(r){ setSumResult(function(p){ return Object.assign({},p,{takeaway:{status:'done',data:r}}); }); })
+          .catch(function(e){ setSumResult(function(p){ return Object.assign({},p,{takeaway:{status:'error',error:e.message}}); }); });
       })();
+
       var sPromises = sections.map(function(sec) {
-        var sp = promptSummarizeSection(sec.key, sec.text);
+        var id = sec.key || sec.heading;
+        var sp = useFlex
+          ? promptSummarizeSectionFlex(sec.heading, sec.text)
+          : promptSummarizeSection(sec.key, sec.text);
         return aiJson(sp.system, sp.user)
-          .then(function(res){ setSumResult(function(p){ var ns=Object.assign({},p.summaries); ns[sec.key]={data:res}; return Object.assign({},p,{summaries:ns}); }); })
-          .catch(function(e){  setSumResult(function(p){ var ns=Object.assign({},p.summaries); ns[sec.key]={error:e.message}; return Object.assign({},p,{summaries:ns}); }); });
+          .then(function(r){ setSumResult(function(p){ var ns=Object.assign({},p.summaries); ns[id]={data:r}; return Object.assign({},p,{summaries:ns}); }); })
+          .catch(function(e){ setSumResult(function(p){ var ns=Object.assign({},p.summaries); ns[id]={error:e.message}; return Object.assign({},p,{summaries:ns}); }); });
       });
+
       await Promise.all([tPromise].concat(sPromises));
       setSumResult(function(p){ return Object.assign({},p,{status:'done'}); });
+
     } catch(e) {
-      setSumResult({ status:'error', error:e.message });
+      setSumResult({ status: 'error', error: e.message });
     } finally {
       setSumRun(false);
     }
@@ -4554,8 +4630,12 @@ function App() {
         <StepCard
           num={1}
           title={summarizeResult.status === 'done'
-            ? (summarizeResult.sections || []).length + ' sections summarised'
-            : 'Summarising ' + (summarizeResult.sections || []).length + ' sections…'}
+            ? (summarizeResult.wholeDoc
+                ? 'Document summary'
+                : (summarizeResult.sections || []).length + ' sections summarised')
+            : (summarizeResult.wholeDoc
+                ? 'Summarising document…'
+                : 'Summarising ' + (summarizeResult.sections || []).length + ' sections…')}
           status={summarizeResult.status === 'done' ? 'done' : 'loading'}
         >
           <SummarizeReport result={summarizeResult} />
