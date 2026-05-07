@@ -2099,14 +2099,40 @@ function _extractArxivId(raw) {
   return m ? m[1] : null;
 }
 function _extractDoi(raw) {
-  var m = raw.match(/(?:doi\.org\/|^doi:?)(10\.[0-9]{4,}\/\S+)/i)
+  var m = raw.match(/(?:doi\.org\/|^doi:?)\s*(10\.[0-9]{4,}\/\S+)/i)
          || raw.match(/(10\.[0-9]{4,}\/\S+)/);
-  if (m) return m[1].replace(/[.)]+$/, '');
-  // Copernicus EGU journals: https://{j}.copernicus.org/articles/{vol}/{page}/{year}/
+  if (m) {
+    // Clean trailing junk: URL suffixes, version tags (bioRxiv vN), punctuation
+    return m[1].replace(/\/full$/i, '').replace(/[?#].*$/, '').replace(/v\d+$/, '').replace(/[.)]+$/, '');
+  }
+  // Copernicus EGU journals: {j}.copernicus.org/articles/{vol}/{page}/{year}/
   var cop = raw.match(/([a-z]+)\.copernicus\.org\/articles\/(\d+)\/(\d+)\/(\d{4})/i);
   if (cop) return '10.5194/' + cop[1].toLowerCase() + '-' + cop[2] + '-' + cop[3] + '-' + cop[4];
-  // PubMed: ncbi.nlm.nih.gov/pubmed/NNNNN or /pmc/articles/PMCNNNNN
+  // Nature.com: nature.com/articles/{slug} where DOI = 10.1038/{slug}
+  var nat = raw.match(/(?:^|\.)nature\.com\/articles\/([a-z0-9_-]+)/i);
+  if (nat) return '10.1038/' + nat[1];
+  // eLife: elifesciences.org/articles/{nnnnn}
+  var eli = raw.match(/elifesciences\.org\/articles\/(\d+)/i);
+  if (eli) return '10.7554/eLife.' + eli[1];
+  // PeerJ: peerj.com/articles/{nnnnn}
+  var pj = raw.match(/peerj\.com\/articles\/(\d+)/i);
+  if (pj) return '10.7717/peerj.' + pj[1];
   return null;
+}
+
+// Extract a PMC ID (digits only) from any URL mentioning PMC.
+function _extractPmcId(url) {
+  var m = url.match(/pmc\/articles\/(PMC\d+)/i)
+       || url.match(/europepmc\.org\/article\/PMC\/(PMC\d+)/i)
+       || url.match(/europepmc\.org\/article\/pmc\/(\d+)/i);
+  return m ? m[1].replace(/^PMC/i, '') : null;
+}
+
+// Extract a PubMed ID from a pubmed.ncbi.nlm.nih.gov URL.
+function _extractPmid(url) {
+  var m = url.match(/pubmed\.ncbi\.nlm\.nih\.gov\/(\d{5,})/i)
+       || url.match(/ncbi\.nlm\.nih\.gov\/pubmed\/(\d{5,})/i);
+  return m ? m[1] : null;
 }
 
 // Returns full-text URL candidates for known publisher URL patterns.
@@ -2114,30 +2140,18 @@ function _fullTextUrlsFor(rawUrl, doi) {
   var urls = [];
   var base = rawUrl.replace(/\/+$/, '');
 
-  // Copernicus EGU — static per-article HTML file
+  // Copernicus EGU — static per-article HTML file at predictable path
   var cop = rawUrl.match(/([a-z]+)\.copernicus\.org\/articles\/(\d+)\/(\d+)\/(\d{4})/i);
   if (cop) {
     var jfn = cop[1].toLowerCase() + '-' + cop[2] + '-' + cop[3] + '-' + cop[4];
-    // Ensure base ends at the year directory
     var copBase = rawUrl.replace(/\/$/, '').replace(/\/[^/]+\.html$/, '');
     urls.push(copBase + '/' + jfn + '.html');
-    return urls; // HTML file is the best source; no need to try more
+    return urls;
   }
 
-  // PubMed — redirect to PMC HTML via NCBI
-  if (/ncbi\.nlm\.nih\.gov\/pubmed\/(\d+)/i.test(rawUrl)) {
-    var pmid = rawUrl.match(/pubmed\/(\d+)/i)[1];
-    urls.push('https://www.ncbi.nlm.nih.gov/pmc/articles/pmid/' + pmid + '/');
-  }
-
-  // Frontiers — append /full if missing
-  if (/frontiersin\.org/i.test(rawUrl) && !/\/full/.test(rawUrl)) {
+  // Frontiers — the full-text page is the /full variant
+  if (/frontiersin\.org/i.test(rawUrl) && !/\/full\b/.test(rawUrl)) {
     urls.push(base + '/full');
-  }
-
-  // Generic: try appending /full or ?format=html
-  if (urls.length === 0 && doi) {
-    // no extra variants — caller will try direct URL then Unpaywall
   }
 
   return urls;
@@ -3826,7 +3840,19 @@ function App() {
     return { pdfUrl: loc.url_for_pdf || null, htmlUrl: loc.url_for_landing_page || loc.url || null };
   }
 
-  // Fetch full text from Europe PMC for a DOI (works for any PMC-indexed paper).
+  // Parse Europe PMC full-text XML → plain text.
+  function _parseEuropePmcXml(xml) {
+    var xmlDoc = new DOMParser().parseFromString(xml, 'application/xml');
+    ['ref-list','table-wrap','fig','supplementary-material','back'].forEach(function(tag) {
+      xmlDoc.querySelectorAll(tag).forEach(function(el){ el.remove(); });
+    });
+    var body = xmlDoc.querySelector('body');
+    if (!body) return null;
+    var text = body.textContent.replace(/\s+/g,' ').trim();
+    return text.length > 600 ? text.slice(0, 90000) : null;
+  }
+
+  // Fetch full text from Europe PMC using a DOI (searches for PMCID first).
   async function _tryEuropePmc(doi) {
     var searchUrl = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=DOI:'
       + encodeURIComponent(doi) + '&resultType=core&format=json&pageSize=1';
@@ -3838,16 +3864,16 @@ function App() {
     var xmlUrl = 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + results[0].pmcid + '/fullTextXML';
     var xmlResp = await fetch(xmlUrl, { signal: AbortSignal.timeout(15000) });
     if (!xmlResp.ok) return null;
-    var xml = await xmlResp.text();
-    var xmlDoc = new DOMParser().parseFromString(xml, 'application/xml');
-    // Remove references, tables, figures
-    ['ref-list','table-wrap','fig','supplementary-material','back'].forEach(function(tag) {
-      xmlDoc.querySelectorAll(tag).forEach(function(el){ el.remove(); });
-    });
-    var body = xmlDoc.querySelector('body');
-    if (!body) return null;
-    var text = body.textContent.replace(/\s+/g,' ').trim();
-    return text.length > 600 ? text.slice(0, 90000) : null;
+    return _parseEuropePmcXml(await xmlResp.text());
+  }
+
+  // Fetch full text from Europe PMC directly using a PMCID (no search needed).
+  async function _tryEuropePmcById(pmcId) {
+    var normalized = 'PMC' + String(pmcId).replace(/^PMC/i, '');
+    var xmlUrl = 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + normalized + '/fullTextXML';
+    var xmlResp = await fetch(xmlUrl, { signal: AbortSignal.timeout(15000) });
+    if (!xmlResp.ok) return null;
+    return _parseEuropePmcXml(await xmlResp.text());
   }
 
   async function handleFetchUrl() {
@@ -3871,6 +3897,8 @@ function App() {
       var arxivId = _extractArxivId(raw);
       var doi     = _extractDoi(raw);
       var isUrl   = /^https?:\/\//i.test(raw);
+      var pmcId   = _extractPmcId(raw);   // digits only, e.g. "7654321"
+      var pmid    = _extractPmid(raw);    // PubMed ID
 
       // ── arXiv ──────────────────────────────────────────────────────────────
       if (arxivId) {
@@ -3910,6 +3938,49 @@ function App() {
         if (!doi) {
           throw new Error('Could not fetch this bioRxiv/medRxiv page. Try pasting the DOI or uploading the PDF.');
         }
+      }
+
+      // ── PMC URL: direct Europe PMC full-text fetch ─────────────────────────
+      if (pmcId) {
+        setSumFetchMsg({ kind: 'loading', text: 'Fetching full text from PubMed Central…' });
+        try {
+          var pmcText = await _tryEuropePmcById(pmcId);
+          if (pmcText) { await _runWithText(pmcText, 'PubMed Central full text retrieved'); return; }
+        } catch(_) {}
+        // PMC XML fetch failed — fall through with whatever doi we have
+      }
+
+      // ── PubMed URL: NCBI eutils → PMCID + DOI → full text ─────────────────
+      if (pmid && !pmcId) {
+        setSumFetchMsg({ kind: 'loading', text: 'Resolving PubMed ID to PMC and DOI…' });
+        try {
+          var elinkUrl = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi'
+            + '?dbfrom=pubmed&db=pmc&id=' + pmid + '&format=json&tool=smarttitle&email=support@f2yapps.com';
+          var elinkResp = await fetch(elinkUrl, { signal: AbortSignal.timeout(10000) });
+          if (elinkResp.ok) {
+            var elinkData = await elinkResp.json();
+            var ls = (elinkData.linksets || [])[0] || {};
+            var pmcDb = (ls.linksetdbs || []).find(function(d){ return d.dbto === 'pmc'; });
+            if (pmcDb && pmcDb.links && pmcDb.links[0]) {
+              var resolvedPmcId = pmcDb.links[0];
+              setSumFetchMsg({ kind: 'loading', text: 'Fetching full text from PubMed Central…' });
+              var pmcText2 = await _tryEuropePmcById(resolvedPmcId);
+              if (pmcText2) { await _runWithText(pmcText2, 'PubMed Central full text retrieved'); return; }
+            }
+          }
+          // Also try to pick up the DOI via esummary if we don't have it yet
+          if (!doi) {
+            var summUrl = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi'
+              + '?db=pubmed&id=' + pmid + '&format=json&tool=smarttitle&email=support@f2yapps.com';
+            var summResp = await fetch(summUrl, { signal: AbortSignal.timeout(8000) });
+            if (summResp.ok) {
+              var summData = await summResp.json();
+              var art = (summData.result || {})[pmid] || {};
+              var doiM = (art.elocationid || '').match(/(10\.[0-9]{4,}\/\S+)/);
+              if (doiM) doi = doiM[1];
+            }
+          }
+        } catch(_) {}
       }
 
       // ── Full-text pipeline for DOIs and general URLs ───────────────────────
@@ -3967,7 +4038,49 @@ function App() {
         if (fullText) { await _runWithText(fullText, 'Open-access full text retrieved (Unpaywall)'); return; }
       }
 
-      // 4. Try Semantic Scholar openAccessPdf field
+      // 4. If still no DOI, try Semantic Scholar URL lookup to resolve one
+      //    (handles ScienceDirect, IEEE, OUP, SSRN, and any URL S2 knows about)
+      if (!doi && isUrl) {
+        setSumFetchMsg({ kind: 'loading', text: 'Resolving paper via Semantic Scholar…' });
+        try {
+          var s2resolve = 'https://api.semanticscholar.org/graph/v1/paper/URL:'
+            + encodeURIComponent(raw)
+            + '?fields=externalIds,openAccessPdf,title,abstract,authors,year,journal';
+          var s2rResp = await fetch(s2resolve, { signal: AbortSignal.timeout(10000) });
+          if (s2rResp.ok) {
+            var s2r = await s2rResp.json();
+            if ((s2r.externalIds || {}).DOI) doi = s2r.externalIds.DOI;
+            // If S2 found an OA PDF, grab it now while we have the response
+            if (!fullText && s2r.openAccessPdf && s2r.openAccessPdf.url) {
+              setSumFetchMsg({ kind: 'loading', text: 'Open-access PDF found via Semantic Scholar — downloading…' });
+              try { fullText = await _fetchPdfFullText(s2r.openAccessPdf.url); } catch(_) {}
+              if (fullText) { await _runWithText(fullText, 'Open-access PDF retrieved (Semantic Scholar)'); return; }
+            }
+          }
+        } catch(_) {}
+        // If we resolved a DOI, retry Europe PMC and Unpaywall with it
+        if (doi && !fullText) {
+          setSumFetchMsg({ kind: 'loading', text: 'Checking Europe PMC with resolved DOI…' });
+          try { fullText = await _tryEuropePmc(doi); } catch(_) {}
+          if (fullText) { await _runWithText(fullText, 'Europe PMC full text retrieved'); return; }
+          setSumFetchMsg({ kind: 'loading', text: 'Searching Unpaywall with resolved DOI…' });
+          try {
+            var oaInfo2 = await _tryUnpaywall(doi);
+            if (oaInfo2 && oaInfo2.pdfUrl) {
+              try { fullText = await _fetchPdfFullText(oaInfo2.pdfUrl); } catch(_) {}
+            }
+            if (!fullText && oaInfo2 && oaInfo2.htmlUrl) {
+              try {
+                var oa2Text = await _fetchHtmlFullText(oaInfo2.htmlUrl);
+                if (oa2Text.length > 2500) fullText = oa2Text;
+              } catch(_) {}
+            }
+          } catch(_) {}
+          if (fullText) { await _runWithText(fullText, 'Open-access full text retrieved (Unpaywall)'); return; }
+        }
+      }
+
+      // 5. Try Semantic Scholar openAccessPdf field (when DOI is known)
       var s2Meta = null;
       if (doi) {
         setSumFetchMsg({ kind: 'loading', text: 'Checking Semantic Scholar for open-access PDF…' });
