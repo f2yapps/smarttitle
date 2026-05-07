@@ -1782,6 +1782,17 @@ var PAPER_TYPES = [
   { key: 'worldview',      label: 'World View'     },
 ];
 
+// Summarizer-specific paper type selector (broader than journal PAPER_TYPES)
+var SUM_PAPER_TYPES = [
+  { key: 'auto',         label: 'Auto-detect',             chapterSetKey: null           },
+  { key: 'article',      label: 'Research Article',        chapterSetKey: 'article'      },
+  { key: 'review',       label: 'Review / Meta-analysis',  chapterSetKey: 'review'       },
+  { key: 'perspective',  label: 'Perspective / Opinion',   chapterSetKey: 'perspective'  },
+  { key: 'policy-brief', label: 'Report / Policy Brief',   chapterSetKey: 'policy-brief' },
+  { key: 'thesis',       label: 'Thesis / Dissertation',   chapterSetKey: null           },
+  { key: 'general',      label: 'Book Chapter / Other',    chapterSetKey: null           },
+];
+
 var ABSTRACT_FRAMEWORKS = {
   'article':       { name: 'IMRAD-O', dims: { I:'Introduction', M:'Methods', R:'Results', A:'Analysis', O:'Objective' } },
   'analysis':      { name: 'IMRAD-O', dims: { I:'Introduction', M:'Methods', R:'Results', A:'Analysis', O:'Objective' } },
@@ -1974,21 +1985,82 @@ function extractSectionTexts(fullText, headings) {
    PAPER SUMMARIZER — FLEXIBLE SECTION DETECTION
    ───────────────────────────────────────────────────────────── */
 
-function promptSegmentFlex(text) {
+function promptSegmentFlex(text, typeHint) {
+  var typeCtx = (typeHint && typeHint !== 'Auto-detect')
+    ? '\nDOCUMENT TYPE: ' + typeHint
+    : '';
   return {
     system: 'You are an expert at parsing documents. Find section headings. Return only valid JSON, no markdown.',
-    user: 'Find all section or chapter headings in this document — numbered sections, chapter titles, named sections (e.g. "1. Introduction", "Background", "Chapter 3", "Results and Discussion"). Return the exact heading text as it appears.\n\nDOCUMENT:\n"""\n' + text.slice(0, 28000) + '\n"""\n\nReturn JSON:\n{\n  "sections": [\n    { "heading": "<exact heading text as it appears in the document>" }\n  ]\n}\n\nIf no clear headings exist at all, return { "sections": [] }',
+    user: 'Find all major section or chapter headings in this document — numbered sections, chapter titles, named sections (e.g. "1. Introduction", "Background", "Chapter 3", "Results and Discussion").' + typeCtx + '\n\nFor each heading, also provide the anchor: the first full sentence of that section\'s body text (NOT the heading line itself). The anchor is used to locate the section reliably even when headings are formatted differently.\n\nDOCUMENT:\n"""\n' + text.slice(0, 28000) + '\n"""\n\nReturn JSON:\n{\n  "sections": [\n    {\n      "heading": "<section title as it appears in the document>",\n      "anchor": "<first full sentence of this section\'s body text>"\n    }\n  ]\n}\n\nIf no clear headings exist at all, return { "sections": [] }',
   };
+}
+
+// Normalize a heading string for fuzzy matching: strip leading numbers, markdown, trim.
+function _normHead(s) {
+  return s
+    .replace(/^[\d.\s#*\-–—]+/, '')   // strip leading numbers / bullets / markdown
+    .replace(/[*_#]/g, '')             // strip inline markdown
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
 }
 
 function extractSectionTextsFlex(fullText, headings) {
   var positioned = [];
+  var lowerText  = fullText.toLowerCase();
+
   headings.forEach(function(h) {
     if (!h.heading || h.heading.trim().length === 0) return;
-    var idx = fullText.indexOf(h.heading);
-    if (idx === -1) idx = fullText.toLowerCase().indexOf(h.heading.toLowerCase());
-    if (idx !== -1) positioned.push({ heading: h.heading, pos: idx });
+
+    var pos       = -1;
+    var bodyStart = -1;
+
+    // Strategy 1 — exact heading match
+    var ei = fullText.indexOf(h.heading);
+    if (ei !== -1) { pos = ei; bodyStart = ei + h.heading.length; }
+
+    // Strategy 2 — case-insensitive heading match
+    if (pos === -1) {
+      var ci = lowerText.indexOf(h.heading.toLowerCase());
+      if (ci !== -1) { pos = ci; bodyStart = ci + h.heading.length; }
+    }
+
+    // Strategy 3 — fuzzy: strip leading numbers/markdown from AI heading, search as substring
+    if (pos === -1) {
+      var normNeedle = _normHead(h.heading);
+      if (normNeedle.length >= 4) {
+        var searchFrom = 0;
+        while (searchFrom < lowerText.length) {
+          var fi = lowerText.indexOf(normNeedle, searchFrom);
+          if (fi === -1) break;
+          // Accept match only at a word boundary (preceded by whitespace, newline, digit, or start)
+          var before = fi > 0 ? lowerText[fi - 1] : '\n';
+          if (before === '\n' || before === '\r' || before === ' ' || before === '\t' ||
+              before === '.' || /\d/.test(before) || fi === 0) {
+            pos = fi;
+            bodyStart = fi + normNeedle.length;
+            break;
+          }
+          searchFrom = fi + 1;
+        }
+      }
+    }
+
+    // Strategy 4 — anchor phrase (first sentence of section body, provided by Fix C prompt)
+    if (pos === -1 && h.anchor && h.anchor.trim().length > 15) {
+      var trimAnchor = h.anchor.trim();
+      var ai = fullText.indexOf(trimAnchor);
+      if (ai === -1) ai = lowerText.indexOf(trimAnchor.toLowerCase().slice(0, 60));
+      if (ai !== -1) {
+        // Anchor is body text — section starts just before anchor
+        pos       = Math.max(0, ai - 1);
+        bodyStart = ai;
+      }
+    }
+
+    if (pos !== -1) positioned.push({ heading: h.heading, pos: pos, bodyStart: bodyStart });
   });
+
   positioned.sort(function(a, b) { return a.pos - b.pos; });
   var seen = {};
   positioned = positioned.filter(function(h) {
@@ -1996,10 +2068,11 @@ function extractSectionTextsFlex(fullText, headings) {
     seen[h.pos] = true;
     return true;
   });
+
   var sections = [];
   for (var i = 0; i < positioned.length; i++) {
-    var start = positioned[i].pos + positioned[i].heading.length;
-    var end   = i + 1 < positioned.length ? positioned[i + 1].pos : fullText.length;
+    var start   = positioned[i].bodyStart;
+    var end     = i + 1 < positioned.length ? positioned[i + 1].pos : fullText.length;
     var content = fullText.slice(start, end).trim();
     if (content.length > 80) {
       sections.push({ heading: positioned[i].heading, text: content });
@@ -3048,6 +3121,7 @@ function App() {
   const [sumUrl, setSumUrl]             = useState('');
   const [sumFetching, setSumFetching]   = useState(false);
   const [sumFetchMsg, setSumFetchMsg]   = useState(null); // {kind:'loading'|'success'|'error', text}
+  const [sumPaperType, setSumPaperType] = useState('auto');
 
   // API key
   const [groqKey, setGroqKey]           = useState(window._groqKey || '');
@@ -3764,24 +3838,30 @@ function App() {
     setSumResult({ status: 'segmenting', sections: [], summaries: {}, takeaway: null });
     try {
 
-      // ── Step 1: try standard academic section detection ────────────────────
+      // Resolve the summarizer paper type selection
+      var sptDef = SUM_PAPER_TYPES.find(function(x){ return x.key === sumPaperType; }) || SUM_PAPER_TYPES[0];
+      var typeHint = sptDef.label; // e.g. "Research Article", used in flex prompt
+
+      // ── Step 1: try structured CHAPTER_SETS detection (only for known types) ─
       var sections = [];
       var useFlex  = false;
-      try {
-        var ps = promptSegment(text, paperType);
-        var seg = await aiJson(ps.system, ps.user);
-        var validKeys = CHAPTER_SETS[paperType] || CHAPTER_SETS['article'];
-        var vkSet = {};
-        validKeys.forEach(function(k){ vkSet[k] = true; });
-        var vh = (seg.sections || []).filter(function(s){ return s.key && vkSet[s.key] && s.heading; });
-        sections = extractSectionTexts(text, vh);
-      } catch(_) {}
+      if (sptDef.chapterSetKey) {
+        try {
+          var ps = promptSegment(text, sptDef.chapterSetKey);
+          var seg = await aiJson(ps.system, ps.user);
+          var validKeys = CHAPTER_SETS[sptDef.chapterSetKey];
+          var vkSet = {};
+          validKeys.forEach(function(k){ vkSet[k] = true; });
+          var vh = (seg.sections || []).filter(function(s){ return s.key && vkSet[s.key] && s.heading; });
+          sections = extractSectionTexts(text, vh);
+        } catch(_) {}
+      }
 
-      // ── Step 2: flexible heading detection (any headings) ──────────────────
+      // ── Step 2: flexible heading detection (any headings, with anchor phrases) ─
       if (sections.length === 0) {
         useFlex = true;
         try {
-          var pf   = promptSegmentFlex(text);
+          var pf   = promptSegmentFlex(text, typeHint);
           var flex = await aiJson(pf.system, pf.user);
           var fh   = (flex.sections || []).filter(function(s){ return s.heading && s.heading.trim(); });
           sections = extractSectionTextsFlex(text, fh);
@@ -3877,6 +3957,7 @@ function App() {
     setSumResult(null);
     setSumUrl('');
     setSumFetchMsg(null);
+    setSumPaperType('auto');
     setAbstract('');
     setConclusion('');
     setChapterText('');
@@ -4115,6 +4196,31 @@ function App() {
           <p style={{ fontSize:'.84rem', color:'var(--muted)', marginBottom:'1rem', lineHeight:'1.6' }}>
             Paste any paper, article, or report and the tool will summarise it <strong>section by section</strong> in plain language, then give you a <strong>general takeaway</strong> — key findings, contribution, implications, and limitations.
           </p>
+
+          {/* ── Document type selector ── */}
+          <div style={{ marginBottom:'1rem' }}>
+            <div style={{ fontSize:'.72rem', color:'var(--muted)', fontWeight:600, textTransform:'uppercase', letterSpacing:'.05em', marginBottom:'.4rem' }}>
+              Document type
+            </div>
+            <div className="paper-type-bar" style={{ marginBottom:0 }}>
+              {SUM_PAPER_TYPES.map(function(t) {
+                return (
+                  <button
+                    key={t.key}
+                    className={'pt-btn' + (sumPaperType === t.key ? ' active' : '')}
+                    onClick={function() { setSumPaperType(t.key); }}
+                    type="button"
+                    disabled={summarizeRunning}
+                  >{t.label}</button>
+                );
+              })}
+            </div>
+            {sumPaperType === 'auto' && (
+              <div style={{ fontSize:'.7rem', color:'var(--muted)', marginTop:'.3rem', fontStyle:'italic' }}>
+                Auto-detect tries to identify any document structure — use a specific type for better results.
+              </div>
+            )}
+          </div>
 
           {/* ── URL / DOI input ── */}
           <div className="url-doi-row">
