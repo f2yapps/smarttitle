@@ -3717,6 +3717,93 @@ function App() {
     return { title: title.trim(), abstract: abstract.trim(), authors: authors, year: published.slice(0,4), source: 'arxiv', id: arxivId };
   }
 
+  // Fetch an HTML page via allorigins and extract the main readable text.
+  async function _fetchHtmlFullText(url) {
+    var proxyUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent(url);
+    var resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(22000) });
+    var json = await resp.json();
+    if (!json.contents) throw new Error('No content returned');
+    var code = json.status && json.status.http_code;
+    if (code && code >= 400) throw new Error('HTTP ' + code);
+    var doc = new DOMParser().parseFromString(json.contents, 'text/html');
+    // Strip noise
+    ['script','style','nav','header','footer','noscript',
+     '.references','#references','.bibliography','.ref-list',
+     '.ltx_bibliography','figure','.figure','.supplementary',
+     '.sidebar','.ads','#ads','.cookie-banner','aside'].forEach(function(sel) {
+      try { doc.querySelectorAll(sel).forEach(function(el){ el.remove(); }); } catch(_){}
+    });
+    // Try progressively broader selectors
+    var el = doc.querySelector('article')
+      || doc.querySelector('.article-body,.article-content,.paper-body,.full-text')
+      || doc.querySelector('[class*="article-body"],[class*="paper-content"],[class*="fulltext"]')
+      || doc.querySelector('main')
+      || doc.querySelector('#article-content,#main-content,#content,#article,#main')
+      || doc.body;
+    if (!el) throw new Error('No content element found');
+    var text = (el.innerText || el.textContent || '')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\n{4,}/g, '\n\n')
+      .trim();
+    if (text.length < 600) throw new Error('Page content too short — likely a landing page or login wall');
+    return text.slice(0, 90000);
+  }
+
+  // Fetch a PDF from a URL via allorigins raw proxy and parse with pdf.js.
+  async function _fetchPdfFullText(pdfUrl) {
+    var proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(pdfUrl);
+    var resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(40000) });
+    if (!resp.ok) throw new Error('PDF download failed: HTTP ' + resp.status);
+    var buf = await resp.arrayBuffer();
+    if (buf.byteLength < 5000) throw new Error('Downloaded file too small to be a valid PDF');
+    var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    var pages = [];
+    for (var p = 1; p <= Math.min(pdf.numPages, 80); p++) {
+      var pg = await pdf.getPage(p);
+      var tc = await pg.getTextContent();
+      pages.push(tc.items.map(function(i){ return i.str; }).join(' '));
+    }
+    var text = pages.join('\n\n').replace(/[ \t]{2,}/g,' ').trim();
+    if (text.length < 500) throw new Error('Could not extract text from PDF');
+    return text.slice(0, 90000);
+  }
+
+  // Query Unpaywall for the best open-access location for a DOI.
+  async function _tryUnpaywall(doi) {
+    var url = 'https://api.unpaywall.org/v2/' + encodeURIComponent(doi) + '?email=support@f2yapps.com';
+    var resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!resp.ok) return null;
+    var data = await resp.json();
+    if (!data.is_oa) return null;
+    var loc = data.best_oa_location;
+    if (!loc) return null;
+    return { pdfUrl: loc.url_for_pdf || null, htmlUrl: loc.url_for_landing_page || loc.url || null };
+  }
+
+  // Fetch full text from Europe PMC for a DOI (works for any PMC-indexed paper).
+  async function _tryEuropePmc(doi) {
+    var searchUrl = 'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query=DOI:'
+      + encodeURIComponent(doi) + '&resultType=core&format=json&pageSize=1';
+    var resp = await fetch(searchUrl, { signal: AbortSignal.timeout(10000) });
+    if (!resp.ok) return null;
+    var data = await resp.json();
+    var results = (data.resultList && data.resultList.result) || [];
+    if (results.length === 0 || !results[0].pmcid) return null;
+    var xmlUrl = 'https://www.ebi.ac.uk/europepmc/webservices/rest/' + results[0].pmcid + '/fullTextXML';
+    var xmlResp = await fetch(xmlUrl, { signal: AbortSignal.timeout(15000) });
+    if (!xmlResp.ok) return null;
+    var xml = await xmlResp.text();
+    var xmlDoc = new DOMParser().parseFromString(xml, 'application/xml');
+    // Remove references, tables, figures
+    ['ref-list','table-wrap','fig','supplementary-material','back'].forEach(function(tag) {
+      xmlDoc.querySelectorAll(tag).forEach(function(el){ el.remove(); });
+    });
+    var body = xmlDoc.querySelector('body');
+    if (!body) return null;
+    var text = body.textContent.replace(/\s+/g,' ').trim();
+    return text.length > 600 ? text.slice(0, 90000) : null;
+  }
+
   async function handleFetchUrl() {
     var raw = sumUrl.trim();
     if (!raw || sumFetching) return;
@@ -3724,105 +3811,192 @@ function App() {
     setSumResult(null);
     setSumFetchMsg({ kind: 'loading', text: 'Detecting source…' });
 
+    // Helper: once we have full text, run summarizer and return true
+    async function _runWithText(text, sourceMsg) {
+      setSumText(text);
+      setSumFetchMsg({ kind: 'success', text: sourceMsg + ' — running section-by-section summary…' });
+      setSumFetching(false);
+      await _runSummarizeWith(text);
+      setSumFetchMsg(null);
+      return true;
+    }
+
     try {
       var arxivId = _extractArxivId(raw);
       var doi     = _extractDoi(raw);
+      var isUrl   = /^https?:\/\//i.test(raw);
 
-      // ── arXiv path ──────────────────────────────────────────────────────────
+      // ── arXiv ──────────────────────────────────────────────────────────────
       if (arxivId) {
-        setSumFetchMsg({ kind: 'loading', text: 'Fetching arXiv HTML (full text)…' });
-        var gotFullText = false;
+        setSumFetchMsg({ kind: 'loading', text: 'Fetching arXiv full text (HTML)…' });
         try {
           var proxyUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent('https://arxiv.org/html/' + arxivId);
-          var resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(18000) });
+          var resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(20000) });
           var json = await resp.json();
           if (json.contents && json.status && json.status.http_code === 200 && json.contents.length > 2000) {
             var htmlDoc = new DOMParser().parseFromString(json.contents, 'text/html');
             var text = _extractArxivHtmlText(htmlDoc);
             if (text && text.length > 800) {
-              setSumText(text);
-              setSumFetchMsg({ kind: 'success', text: 'arXiv full text loaded — running section-by-section summary…' });
-              gotFullText = true;
-              setSumFetching(false);
-              await _runSummarizeWith(text);
-              setSumFetchMsg(null);
+              await _runWithText(text, 'arXiv full text loaded');
               return;
             }
           }
-        } catch(_) { /* fall through to abstract */ }
+        } catch(_) {}
+        // arXiv HTML unavailable — fall back to abstract
+        setSumFetchMsg({ kind: 'loading', text: 'HTML not available — fetching arXiv abstract…' });
+        var arxivMeta = await _fetchArxivAbstract(arxivId);
+        setSumFetching(false);
+        setSumFetchMsg({ kind: 'success', text: 'Abstract fetched — generating summary…' });
+        await runAbstractSummary(arxivMeta);
+        setSumFetchMsg(null);
+        return;
+      }
 
-        if (!gotFullText) {
-          setSumFetchMsg({ kind: 'loading', text: 'Full HTML not available — fetching abstract from arXiv…' });
-          var meta = await _fetchArxivAbstract(arxivId);
-          setSumFetching(false);
-          setSumFetchMsg({ kind: 'success', text: 'Abstract fetched from arXiv — generating summary…' });
-          await runAbstractSummary(meta);
-          setSumFetchMsg(null);
-        }
-
-      // ── DOI / other URL path ────────────────────────────────────────────────
-      } else {
-        if (!doi) {
-          doi = _extractDoi(raw.replace(/^https?:\/\/[^/]+\//, ''));
-        }
-        var meta2 = null;
-
-        // Try Semantic Scholar first (has abstracts for ~200M papers)
+      // ── bioRxiv / medRxiv ──────────────────────────────────────────────────
+      if (/biorxiv\.org|medrxiv\.org/i.test(raw)) {
+        setSumFetchMsg({ kind: 'loading', text: 'Fetching bioRxiv/medRxiv full text…' });
+        var biorxivBase = raw.replace(/\?.*$/, '').replace(/\.(full|abstract|pdf)$/, '');
         try {
-          setSumFetchMsg({ kind: 'loading', text: 'Looking up paper on Semantic Scholar…' });
-          var s2id = doi ? doi : ('URL:' + raw);
+          var btext = await _fetchHtmlFullText(biorxivBase + '.full');
+          if (btext.length > 800) { await _runWithText(btext, 'bioRxiv full text loaded'); return; }
+        } catch(_) {}
+        // if HTML failed but we have a DOI, fall through to DOI path
+        if (!doi) {
+          throw new Error('Could not fetch this bioRxiv/medRxiv page. Try pasting the DOI or uploading the PDF.');
+        }
+      }
+
+      // ── Full-text pipeline for DOIs and general URLs ───────────────────────
+      var fullText = null;
+
+      // 1. Try Europe PMC (covers all PubMed Central open-access papers — huge corpus)
+      if (!fullText && doi) {
+        setSumFetchMsg({ kind: 'loading', text: 'Checking Europe PMC for full text…' });
+        try { fullText = await _tryEuropePmc(doi); } catch(_) {}
+        if (fullText) { await _runWithText(fullText, 'Europe PMC full text retrieved'); return; }
+      }
+
+      // 2. Try fetching the URL directly as HTML (works for PLOS, PeerJ, many OA journals)
+      if (!fullText && isUrl) {
+        setSumFetchMsg({ kind: 'loading', text: 'Fetching page content directly…' });
+        try {
+          var directText = await _fetchHtmlFullText(raw);
+          if (directText.length > 1200) fullText = directText;
+        } catch(_) {}
+        if (fullText) { await _runWithText(fullText, 'Full text retrieved from URL'); return; }
+      }
+
+      // 3. Try Unpaywall to find an open-access PDF or HTML version
+      if (!fullText && doi) {
+        setSumFetchMsg({ kind: 'loading', text: 'Searching for open-access version (Unpaywall)…' });
+        try {
+          var oaInfo = await _tryUnpaywall(doi);
+          if (oaInfo) {
+            if (oaInfo.pdfUrl) {
+              setSumFetchMsg({ kind: 'loading', text: 'Open-access PDF found — downloading and parsing…' });
+              try { fullText = await _fetchPdfFullText(oaInfo.pdfUrl); } catch(_) {}
+            }
+            if (!fullText && oaInfo.htmlUrl && oaInfo.htmlUrl !== raw) {
+              setSumFetchMsg({ kind: 'loading', text: 'Open-access HTML version found — fetching…' });
+              try {
+                var oaText = await _fetchHtmlFullText(oaInfo.htmlUrl);
+                if (oaText.length > 1200) fullText = oaText;
+              } catch(_) {}
+            }
+          }
+        } catch(_) {}
+        if (fullText) { await _runWithText(fullText, 'Open-access full text retrieved (Unpaywall)'); return; }
+      }
+
+      // 4. Try Semantic Scholar openAccessPdf field
+      var s2Meta = null;
+      if (doi) {
+        setSumFetchMsg({ kind: 'loading', text: 'Checking Semantic Scholar for open-access PDF…' });
+        try {
+          var s2id = doi;
           var s2url = 'https://api.semanticscholar.org/graph/v1/paper/' + encodeURIComponent(s2id)
-            + '?fields=title,abstract,authors,year,journal,externalIds';
+            + '?fields=title,abstract,authors,year,journal,externalIds,openAccessPdf';
           var s2resp = await fetch(s2url, { signal: AbortSignal.timeout(10000) });
           if (s2resp.ok) {
             var s2 = await s2resp.json();
             if (s2.abstract) {
-              meta2 = {
-                title:    s2.title || '',
+              s2Meta = {
+                title:   s2.title || '',
                 abstract: s2.abstract,
-                authors:  (s2.authors || []).slice(0,6).map(function(a){ return a.name; }).join(', '),
-                year:     s2.year ? String(s2.year) : '',
-                journal:  (s2.journal || {}).name || '',
-                doi:      doi || ((s2.externalIds || {}).DOI || ''),
+                authors: (s2.authors||[]).slice(0,6).map(function(a){ return a.name; }).join(', '),
+                year:    s2.year ? String(s2.year) : '',
+                journal: (s2.journal||{}).name || '',
+                doi:     doi || ((s2.externalIds||{}).DOI||''),
+              };
+            }
+            if (!fullText && s2.openAccessPdf && s2.openAccessPdf.url) {
+              setSumFetchMsg({ kind: 'loading', text: 'Downloading open-access PDF from Semantic Scholar…' });
+              try { fullText = await _fetchPdfFullText(s2.openAccessPdf.url); } catch(_) {}
+            }
+          }
+        } catch(_) {}
+        if (fullText) { await _runWithText(fullText, 'Open-access PDF retrieved (Semantic Scholar)'); return; }
+      }
+
+      // ── No full text found — fall back to abstract summary ─────────────────
+      setSumFetchMsg({ kind: 'loading', text: 'Full text not publicly accessible — fetching abstract…' });
+      var absMeta = s2Meta;
+
+      // Try Semantic Scholar for abstract if we don't have it yet
+      if (!absMeta) {
+        try {
+          setSumFetchMsg({ kind: 'loading', text: 'Looking up paper on Semantic Scholar…' });
+          var s2idFb = doi ? doi : ('URL:' + raw);
+          var s2urlFb = 'https://api.semanticscholar.org/graph/v1/paper/' + encodeURIComponent(s2idFb)
+            + '?fields=title,abstract,authors,year,journal,externalIds';
+          var s2fbResp = await fetch(s2urlFb, { signal: AbortSignal.timeout(10000) });
+          if (s2fbResp.ok) {
+            var s2fb = await s2fbResp.json();
+            if (s2fb.abstract) {
+              absMeta = {
+                title:   s2fb.title || '',
+                abstract: s2fb.abstract,
+                authors: (s2fb.authors||[]).slice(0,6).map(function(a){ return a.name; }).join(', '),
+                year:    s2fb.year ? String(s2fb.year) : '',
+                journal: (s2fb.journal||{}).name || '',
+                doi:     doi || ((s2fb.externalIds||{}).DOI||''),
               };
             }
           }
         } catch(_) {}
-
-        // Fall back to Crossref if S2 had no abstract
-        if (!meta2 && doi) {
-          try {
-            setSumFetchMsg({ kind: 'loading', text: 'Looking up DOI on Crossref…' });
-            var crurl = 'https://api.crossref.org/works/' + encodeURIComponent(doi)
-              + '?mailto=support@f2yapps.com';
-            var crresp = await fetch(crurl, { signal: AbortSignal.timeout(10000) });
-            if (crresp.ok) {
-              var cr = await crresp.json();
-              var msg2 = cr.message || {};
-              var abstract2 = (msg2.abstract || '').replace(/<[^>]+>/g, ' ').trim();
-              if (abstract2) {
-                var au2 = (msg2.author || []).slice(0,6).map(function(a){ return (a.given||'') + ' ' + (a.family||''); }).join(', ');
-                meta2 = {
-                  title:    Array.isArray(msg2.title) ? msg2.title[0] : (msg2.title || ''),
-                  abstract: abstract2,
-                  authors:  au2,
-                  year:     msg2.published && msg2.published['date-parts'] ? String(msg2.published['date-parts'][0][0]) : '',
-                  journal:  (msg2['container-title'] || [])[0] || '',
-                  doi:      doi,
-                };
-              }
-            }
-          } catch(_) {}
-        }
-
-        if (!meta2) {
-          throw new Error('Could not retrieve this paper\'s abstract. The paper may be paywalled and not indexed with an open abstract. Try downloading the PDF and pasting the text instead.');
-        }
-        setSumFetching(false);
-        setSumFetchMsg({ kind: 'success', text: 'Abstract found — generating summary…' });
-        await runAbstractSummary(meta2);
-        setSumFetchMsg(null);
       }
+
+      // Try Crossref as final abstract fallback
+      if (!absMeta && doi) {
+        setSumFetchMsg({ kind: 'loading', text: 'Trying Crossref for abstract…' });
+        try {
+          var crurl = 'https://api.crossref.org/works/' + encodeURIComponent(doi) + '?mailto=support@f2yapps.com';
+          var crresp = await fetch(crurl, { signal: AbortSignal.timeout(10000) });
+          if (crresp.ok) {
+            var cr = await crresp.json();
+            var crMsg = cr.message || {};
+            var crAbstract = (crMsg.abstract||'').replace(/<[^>]+>/g,' ').trim();
+            if (crAbstract) {
+              absMeta = {
+                title:   Array.isArray(crMsg.title) ? crMsg.title[0] : (crMsg.title||''),
+                abstract: crAbstract,
+                authors: (crMsg.author||[]).slice(0,6).map(function(a){ return (a.given||'')+' '+(a.family||''); }).join(', '),
+                year:    crMsg.published && crMsg.published['date-parts'] ? String(crMsg.published['date-parts'][0][0]) : '',
+                journal: (crMsg['container-title']||[])[0]||'',
+                doi:     doi,
+              };
+            }
+          }
+        } catch(_) {}
+      }
+
+      if (!absMeta) {
+        throw new Error('Could not retrieve this paper\'s content. It may be fully paywalled with no open-access version available. Try downloading the PDF and uploading it below.');
+      }
+      setSumFetching(false);
+      setSumFetchMsg({ kind: 'success', text: 'Abstract found — generating summary…' });
+      await runAbstractSummary(absMeta);
+      setSumFetchMsg(null);
 
     } catch(e) {
       setSumFetchMsg({ kind: 'error', text: e.message });
@@ -4242,7 +4416,7 @@ function App() {
             </button>
           </div>
           <div className="url-doi-hint">
-            arXiv → full section-by-section summary · DOI / other URL → abstract summary with a note
+            arXiv / bioRxiv / Europe PMC → full text · Any DOI → open-access PDF/HTML searched automatically · paywalled-only papers → abstract summary
           </div>
           {sumFetchMsg && (
             <div className={'sum-fetch-msg ' + sumFetchMsg.kind}>{sumFetchMsg.text}</div>
