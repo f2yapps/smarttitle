@@ -26,6 +26,7 @@ export default async function handler(req, res) {
     body: JSON.stringify({
       model: 'llama-3.3-70b-versatile',
       messages,
+      response_format: { type: 'json_object' },
     }),
   });
 
