@@ -891,6 +891,67 @@ hr.div { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
 .sum-key-points li { font-size: .82rem; line-height: 1.6; color: var(--ink); margin-bottom: .18rem; }
 .sum-section-loading { padding: .75rem .9rem; }
 .sum-section-err { padding: .65rem .9rem; font-size: .81rem; color: #c0392b; font-style: italic; }
+
+/* ── URL / DOI fetch row ── */
+.url-doi-row { display: flex; gap: .5rem; margin-bottom: .75rem; }
+.url-doi-input {
+  flex: 1;
+  font-family: var(--sans);
+  font-size: .88rem;
+  padding: .55rem .8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: #fff;
+  color: var(--ink);
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  height: auto;
+}
+.url-doi-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(196,84,26,.12); }
+.url-doi-fetch {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  font-family: var(--sans);
+  font-size: .84rem;
+  font-weight: 600;
+  padding: .55rem 1.1rem;
+  border-radius: var(--r);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s;
+  flex-shrink: 0;
+}
+.url-doi-fetch:hover:not(:disabled) { background: #a83f13; }
+.url-doi-fetch:disabled { opacity: .42; cursor: not-allowed; }
+.url-doi-hint { font-size: .72rem; color: var(--muted); margin-bottom: .5rem; font-style: italic; }
+.url-doi-divider {
+  display: flex; align-items: center; gap: .75rem;
+  font-family: var(--mono); font-size: .65rem; text-transform: uppercase;
+  letter-spacing: .1em; color: var(--muted); margin: .9rem 0;
+}
+.url-doi-divider::before, .url-doi-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.sum-fetch-msg {
+  font-size: .78rem; padding: .45rem .7rem; border-radius: var(--r);
+  margin-bottom: .6rem; display: flex; align-items: center; gap: .45rem;
+}
+.sum-fetch-msg.loading { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
+.sum-fetch-msg.error   { background: #fff0f0; border: 1px solid #fca5a5; color: #991b1b; }
+.sum-fetch-msg.success { background: #f0fdf4; border: 1px solid #86efac; color: #166534; }
+
+/* ── Abstract-only result ── */
+.sum-meta-card {
+  border: 1px solid var(--border); border-radius: var(--r);
+  padding: .75rem .95rem; background: var(--card); margin-bottom: .9rem;
+}
+.sum-meta-title { font-family: var(--serif); font-size: 1rem; line-height: 1.4; margin-bottom: .3rem; }
+.sum-meta-details { font-size: .75rem; color: var(--muted); margin-bottom: .2rem; }
+.sum-meta-doi { font-family: var(--mono); font-size: .68rem; color: var(--muted); }
+.sum-abstract-note {
+  font-size: .77rem; color: #92400e; background: #fffbeb;
+  border: 1px solid #fde68a; border-radius: var(--r);
+  padding: .55rem .8rem; margin-top: .75rem; line-height: 1.5;
+}
 </style>
 </head>
 <body>
@@ -1913,6 +1974,55 @@ function extractSectionTexts(fullText, headings) {
    PAPER SUMMARIZER PROMPTS
    ───────────────────────────────────────────────────────────── */
 
+/* ── Source detection helpers ── */
+function _extractArxivId(raw) {
+  var m = raw.match(/arxiv\.org\/(?:abs|pdf|html)\/([0-9]{4}\.[0-9]{4,5}(?:v\d+)?)/i)
+         || raw.match(/^([0-9]{4}\.[0-9]{4,5}(?:v\d+)?)$/);
+  return m ? m[1] : null;
+}
+function _extractDoi(raw) {
+  var m = raw.match(/(?:doi\.org\/|^doi:?)(10\.[0-9]{4,}\/\S+)/i)
+         || raw.match(/(10\.[0-9]{4,}\/\S+)/);
+  return m ? m[1].replace(/[.)]+$/, '') : null;
+}
+function _extractArxivHtmlText(doc) {
+  ['script','style','nav','footer','.ltx_bibliography','.ltx_appendix',
+   'figure','.ltx_figure','.ltx_float'].forEach(function(sel) {
+    doc.querySelectorAll(sel).forEach(function(el) { el.remove(); });
+  });
+  var article = doc.querySelector('article.ltx_document')
+             || doc.querySelector('article')
+             || doc.body;
+  var sections = Array.from(article.querySelectorAll('section.ltx_section, section.ltx_chapter'));
+  if (sections.length > 0) {
+    return sections.map(function(sec) {
+      var h = sec.querySelector('h1,h2,h3,h4');
+      return (h ? h.textContent.trim() + '\n\n' : '') + sec.textContent.replace(/\s+/g,' ').trim();
+    }).join('\n\n').slice(0, 60000);
+  }
+  return article.textContent.replace(/\s+/g,' ').trim().slice(0, 60000);
+}
+
+function promptAbstractSummary(meta) {
+  var ctx = 'TITLE: ' + (meta.title || 'Unknown') + '\n'
+    + 'AUTHORS: ' + (meta.authors || 'Unknown') + '\n'
+    + 'YEAR: ' + (meta.year || '') + '\n'
+    + (meta.journal ? 'JOURNAL: ' + meta.journal + '\n' : '')
+    + (meta.doi ? 'DOI: ' + meta.doi + '\n' : '')
+    + '\nABSTRACT:\n' + (meta.abstract || '');
+  return {
+    system: 'You are a research assistant. Summarize academic papers from their abstract and metadata in plain language. Return only valid JSON, no markdown.',
+    user: 'Based on this paper\'s abstract and metadata, give a clear plain-language overview.\n\n' + ctx
+      + '\n\nReturn JSON:\n{\n'
+      + '  "one_line": "<one sentence capturing the bottom line>",\n'
+      + '  "what_it_is_about": "<2–3 sentences: topic, purpose, research question>",\n'
+      + '  "key_claims": ["<claim 1>", "<claim 2>", "<claim 3>"],\n'
+      + '  "approach": "<brief description of the method or approach used>",\n'
+      + '  "significance": "<why this paper matters to the field>"\n'
+      + '}',
+  };
+}
+
 function promptSummarizeSection(sectionKey, text) {
   var label = (CHAPTER_FRAMEWORKS[sectionKey] || {}).label || sectionKey;
   return {
@@ -2742,6 +2852,45 @@ function ErrorBox({ msg, onAddKey, hasKey }) {
    ───────────────────────────────────────────────────────────── */
 
 function SummarizeReport({ result }) {
+  // ── Abstract-only path (from URL/DOI fetch of paywalled paper) ──────────────
+  if (result.type === 'abstract') {
+    var meta = result.meta || {};
+    var d    = result.data || {};
+    return (
+      <div>
+        {meta.title && (
+          <div className="sum-meta-card">
+            <div className="sum-meta-title">{meta.title}</div>
+            {(meta.authors || meta.year) && (
+              <div className="sum-meta-details">
+                {[meta.authors, meta.year, meta.journal].filter(Boolean).join(' · ')}
+              </div>
+            )}
+            {meta.doi && <div className="sum-meta-doi">DOI: {meta.doi}</div>}
+          </div>
+        )}
+        <div className="sum-takeaway">
+          <div className="sum-takeaway-head">📋 Abstract Summary</div>
+          <p className="sum-one-line">{d.one_line}</p>
+          <div className="sum-block-label">What it's about</div>
+          <p className="sum-block-text">{d.what_it_is_about}</p>
+          <div className="sum-block-label">Key Claims</div>
+          <ul className="sum-findings-list">
+            {(d.key_claims || []).map(function(c,i){ return <li key={i}>{c}</li>; })}
+          </ul>
+          <div className="sum-block-label">Approach</div>
+          <p className="sum-block-text">{d.approach}</p>
+          <div className="sum-block-label">Significance</div>
+          <p className="sum-block-text" style={{paddingBottom:'1rem'}}>{d.significance}</p>
+        </div>
+        <div className="sum-abstract-note">
+          ℹ️ <strong>Abstract summary only</strong> — the full paper text is not publicly accessible from this URL. For a section-by-section breakdown, download the PDF and paste the text (or upload the file) in the area below.
+        </div>
+      </div>
+    );
+  }
+
+  // ── Full-text path (paste / upload / arXiv HTML) ────────────────────────────
   var takeaway  = result.takeaway  || null;
   var sections  = result.sections  || [];
   var summaries = result.summaries || {};
@@ -2850,6 +2999,9 @@ function App() {
   const [summarizeResult, setSumResult] = useState(null);
   const [summarizeRunning, setSumRun]   = useState(false);
   const [sumDragOver, setSumDragOver]   = useState(false);
+  const [sumUrl, setSumUrl]             = useState('');
+  const [sumFetching, setSumFetching]   = useState(false);
+  const [sumFetchMsg, setSumFetchMsg]   = useState(null); // {kind:'loading'|'success'|'error', text}
 
   // API key
   const [groqKey, setGroqKey]           = useState(window._groqKey || '');
@@ -3415,6 +3567,194 @@ function App() {
     }
   }
 
+  // ── URL / DOI fetch ────────────────────────────────────────────────────────
+
+  async function runAbstractSummary(meta) {
+    setSumResult({ status: 'loading', type: 'abstract', meta: meta });
+    setSumRun(true);
+    var p = promptAbstractSummary(meta);
+    try {
+      var data = await aiJson(p.system, p.user);
+      setSumResult({ status: 'done', type: 'abstract', meta: meta, data: data });
+    } catch(e) {
+      setSumResult({ status: 'error', type: 'abstract', error: e.message });
+    } finally {
+      setSumRun(false);
+    }
+  }
+
+  async function _fetchArxivAbstract(arxivId) {
+    var url = 'https://export.arxiv.org/api/query?id_list=' + encodeURIComponent(arxivId);
+    var resp = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    if (!resp.ok) throw new Error('arXiv API returned ' + resp.status);
+    var xml = await resp.text();
+    var doc = new DOMParser().parseFromString(xml, 'text/xml');
+    var title    = (doc.querySelector('entry > title')   || {}).textContent || '';
+    var abstract = (doc.querySelector('entry > summary') || {}).textContent || '';
+    var authors  = Array.from(doc.querySelectorAll('entry > author > name')).map(function(n){ return n.textContent; }).join(', ');
+    var published= ((doc.querySelector('entry > published') || {}).textContent || '').slice(0,10);
+    if (!abstract.trim()) throw new Error('No abstract found for arXiv:' + arxivId);
+    return { title: title.trim(), abstract: abstract.trim(), authors: authors, year: published.slice(0,4), source: 'arxiv', id: arxivId };
+  }
+
+  async function handleFetchUrl() {
+    var raw = sumUrl.trim();
+    if (!raw || sumFetching) return;
+    setSumFetching(true);
+    setSumResult(null);
+    setSumFetchMsg({ kind: 'loading', text: 'Detecting source…' });
+
+    try {
+      var arxivId = _extractArxivId(raw);
+      var doi     = _extractDoi(raw);
+
+      // ── arXiv path ──────────────────────────────────────────────────────────
+      if (arxivId) {
+        setSumFetchMsg({ kind: 'loading', text: 'Fetching arXiv HTML (full text)…' });
+        var gotFullText = false;
+        try {
+          var proxyUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent('https://arxiv.org/html/' + arxivId);
+          var resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(18000) });
+          var json = await resp.json();
+          if (json.contents && json.status && json.status.http_code === 200 && json.contents.length > 2000) {
+            var htmlDoc = new DOMParser().parseFromString(json.contents, 'text/html');
+            var text = _extractArxivHtmlText(htmlDoc);
+            if (text && text.length > 800) {
+              setSumText(text);
+              setSumFetchMsg({ kind: 'success', text: 'arXiv full text loaded — running section-by-section summary…' });
+              gotFullText = true;
+              setSumFetching(false);
+              await _runSummarizeWith(text);
+              setSumFetchMsg(null);
+              return;
+            }
+          }
+        } catch(_) { /* fall through to abstract */ }
+
+        if (!gotFullText) {
+          setSumFetchMsg({ kind: 'loading', text: 'Full HTML not available — fetching abstract from arXiv…' });
+          var meta = await _fetchArxivAbstract(arxivId);
+          setSumFetching(false);
+          setSumFetchMsg({ kind: 'success', text: 'Abstract fetched from arXiv — generating summary…' });
+          await runAbstractSummary(meta);
+          setSumFetchMsg(null);
+        }
+
+      // ── DOI / other URL path ────────────────────────────────────────────────
+      } else {
+        if (!doi) {
+          doi = _extractDoi(raw.replace(/^https?:\/\/[^/]+\//, ''));
+        }
+        var meta2 = null;
+
+        // Try Semantic Scholar first (has abstracts for ~200M papers)
+        try {
+          setSumFetchMsg({ kind: 'loading', text: 'Looking up paper on Semantic Scholar…' });
+          var s2id = doi ? doi : ('URL:' + raw);
+          var s2url = 'https://api.semanticscholar.org/graph/v1/paper/' + encodeURIComponent(s2id)
+            + '?fields=title,abstract,authors,year,journal,externalIds';
+          var s2resp = await fetch(s2url, { signal: AbortSignal.timeout(10000) });
+          if (s2resp.ok) {
+            var s2 = await s2resp.json();
+            if (s2.abstract) {
+              meta2 = {
+                title:    s2.title || '',
+                abstract: s2.abstract,
+                authors:  (s2.authors || []).slice(0,6).map(function(a){ return a.name; }).join(', '),
+                year:     s2.year ? String(s2.year) : '',
+                journal:  (s2.journal || {}).name || '',
+                doi:      doi || ((s2.externalIds || {}).DOI || ''),
+              };
+            }
+          }
+        } catch(_) {}
+
+        // Fall back to Crossref if S2 had no abstract
+        if (!meta2 && doi) {
+          try {
+            setSumFetchMsg({ kind: 'loading', text: 'Looking up DOI on Crossref…' });
+            var crurl = 'https://api.crossref.org/works/' + encodeURIComponent(doi)
+              + '?mailto=support@f2yapps.com';
+            var crresp = await fetch(crurl, { signal: AbortSignal.timeout(10000) });
+            if (crresp.ok) {
+              var cr = await crresp.json();
+              var msg2 = cr.message || {};
+              var abstract2 = (msg2.abstract || '').replace(/<[^>]+>/g, ' ').trim();
+              if (abstract2) {
+                var au2 = (msg2.author || []).slice(0,6).map(function(a){ return (a.given||'') + ' ' + (a.family||''); }).join(', ');
+                meta2 = {
+                  title:    Array.isArray(msg2.title) ? msg2.title[0] : (msg2.title || ''),
+                  abstract: abstract2,
+                  authors:  au2,
+                  year:     msg2.published && msg2.published['date-parts'] ? String(msg2.published['date-parts'][0][0]) : '',
+                  journal:  (msg2['container-title'] || [])[0] || '',
+                  doi:      doi,
+                };
+              }
+            }
+          } catch(_) {}
+        }
+
+        if (!meta2) {
+          throw new Error('Could not retrieve this paper\'s abstract. The paper may be paywalled and not indexed with an open abstract. Try downloading the PDF and pasting the text instead.');
+        }
+        setSumFetching(false);
+        setSumFetchMsg({ kind: 'success', text: 'Abstract found — generating summary…' });
+        await runAbstractSummary(meta2);
+        setSumFetchMsg(null);
+      }
+
+    } catch(e) {
+      setSumFetchMsg({ kind: 'error', text: e.message });
+    } finally {
+      setSumFetching(false);
+    }
+  }
+
+  // ── Core summarizer (accepts text directly or falls back to state) ─────────
+
+  async function _runSummarizeWith(text) {
+    setSumRun(true);
+    setSumResult({ status: 'segmenting', sections: [], summaries: {}, takeaway: null });
+    try {
+      var ps = promptSegment(text, paperType);
+      var segResult;
+      try { segResult = await aiJson(ps.system, ps.user); }
+      catch(segErr) { setSumResult({ status:'error', error:'Section detection failed: '+segErr.message }); return; }
+
+      var validKeys = CHAPTER_SETS[paperType] || CHAPTER_SETS['article'];
+      var validKeySet = {};
+      validKeys.forEach(function(k){ validKeySet[k]=true; });
+      var validHeadings = (segResult.sections||[]).filter(function(s){ return s.key && validKeySet[s.key] && s.heading; });
+      var sections = extractSectionTexts(text, validHeadings);
+
+      if (sections.length === 0) {
+        setSumResult({ status:'error', error:'Could not locate section headings. Make sure the paper has clear headings (Introduction, Methods, Discussion…).' });
+        return;
+      }
+      setSumResult({ status:'running', sections:sections, summaries:{}, takeaway:{status:'loading'} });
+
+      var tPromise = (function() {
+        var pt = promptOverallTakeaway(text);
+        return aiJson(pt.system, pt.user)
+          .then(function(res){ setSumResult(function(p){ return Object.assign({},p,{takeaway:{status:'done',data:res}}); }); })
+          .catch(function(e){  setSumResult(function(p){ return Object.assign({},p,{takeaway:{status:'error',error:e.message}}); }); });
+      })();
+      var sPromises = sections.map(function(sec) {
+        var sp = promptSummarizeSection(sec.key, sec.text);
+        return aiJson(sp.system, sp.user)
+          .then(function(res){ setSumResult(function(p){ var ns=Object.assign({},p.summaries); ns[sec.key]={data:res}; return Object.assign({},p,{summaries:ns}); }); })
+          .catch(function(e){  setSumResult(function(p){ var ns=Object.assign({},p.summaries); ns[sec.key]={error:e.message}; return Object.assign({},p,{summaries:ns}); }); });
+      });
+      await Promise.all([tPromise].concat(sPromises));
+      setSumResult(function(p){ return Object.assign({},p,{status:'done'}); });
+    } catch(e) {
+      setSumResult({ status:'error', error:e.message });
+    } finally {
+      setSumRun(false);
+    }
+  }
+
   async function handleSumFile(file) {
     if (!file) return;
     setSumText('');
@@ -3445,81 +3785,7 @@ function App() {
 
   async function runSummarize() {
     if (!summarizeText.trim()) return;
-    setSumRun(true);
-    setSumResult({ status: 'segmenting', sections: [], summaries: {}, takeaway: null });
-
-    try {
-      // Step 1: detect sections
-      var ps = promptSegment(summarizeText, paperType);
-      var segResult;
-      try {
-        segResult = await aiJson(ps.system, ps.user);
-      } catch(segErr) {
-        setSumResult({ status: 'error', error: 'Section detection failed: ' + segErr.message });
-        return;
-      }
-
-      var validKeys = CHAPTER_SETS[paperType] || CHAPTER_SETS['article'];
-      var validKeySet = {};
-      validKeys.forEach(function(k) { validKeySet[k] = true; });
-      var validHeadings = (segResult.sections || []).filter(function(sec) {
-        return sec.key && validKeySet[sec.key] && sec.heading;
-      });
-      var sections = extractSectionTexts(summarizeText, validHeadings);
-
-      if (sections.length === 0) {
-        setSumResult({
-          status: 'error',
-          error: 'Could not locate section headings. Make sure your paper has clear headings (e.g. "Introduction", "Methods", "Discussion"). For papers without headings, try pasting after adding a heading on each section.',
-        });
-        return;
-      }
-
-      setSumResult({ status: 'running', sections: sections, summaries: {}, takeaway: { status: 'loading' } });
-
-      // Step 2: overall takeaway + all section summaries in parallel
-      var takeawayPromise = (function() {
-        var pt = promptOverallTakeaway(summarizeText);
-        return aiJson(pt.system, pt.user)
-          .then(function(res) {
-            setSumResult(function(prev) {
-              return Object.assign({}, prev, { takeaway: { status: 'done', data: res } });
-            });
-          })
-          .catch(function(err) {
-            setSumResult(function(prev) {
-              return Object.assign({}, prev, { takeaway: { status: 'error', error: err.message } });
-            });
-          });
-      })();
-
-      var sectionPromises = sections.map(function(sec) {
-        var sp = promptSummarizeSection(sec.key, sec.text);
-        return aiJson(sp.system, sp.user)
-          .then(function(res) {
-            setSumResult(function(prev) {
-              var ns = Object.assign({}, prev.summaries);
-              ns[sec.key] = { data: res };
-              return Object.assign({}, prev, { summaries: ns });
-            });
-          })
-          .catch(function(err) {
-            setSumResult(function(prev) {
-              var ns = Object.assign({}, prev.summaries);
-              ns[sec.key] = { error: err.message };
-              return Object.assign({}, prev, { summaries: ns });
-            });
-          });
-      });
-
-      await Promise.all([takeawayPromise].concat(sectionPromises));
-      setSumResult(function(prev) { return Object.assign({}, prev, { status: 'done' }); });
-
-    } catch(e) {
-      setSumResult({ status: 'error', error: e.message });
-    } finally {
-      setSumRun(false);
-    }
+    await _runSummarizeWith(summarizeText);
   }
 
   function reset() {
@@ -3533,6 +3799,8 @@ function App() {
     setKwResult(null);
     setFPResult(null);
     setSumResult(null);
+    setSumUrl('');
+    setSumFetchMsg(null);
     setAbstract('');
     setConclusion('');
     setChapterText('');
@@ -3771,6 +4039,35 @@ function App() {
           <p style={{ fontSize:'.84rem', color:'var(--muted)', marginBottom:'1rem', lineHeight:'1.6' }}>
             Paste any paper, article, or report and the tool will summarise it <strong>section by section</strong> in plain language, then give you a <strong>general takeaway</strong> — key findings, contribution, implications, and limitations.
           </p>
+
+          {/* ── URL / DOI input ── */}
+          <div className="url-doi-row">
+            <input
+              className="url-doi-input"
+              type="text"
+              placeholder="Paste a DOI (10.xxxx/…), arXiv ID (2310.01234), or paper URL…"
+              value={sumUrl}
+              onChange={function(e){ setSumUrl(e.target.value); setSumFetchMsg(null); }}
+              onKeyDown={function(e){ if(e.key==='Enter') handleFetchUrl(); }}
+              disabled={sumFetching || summarizeRunning}
+            />
+            <button
+              className="url-doi-fetch"
+              onClick={handleFetchUrl}
+              disabled={!sumUrl.trim() || sumFetching || summarizeRunning}
+            >
+              {sumFetching ? 'Fetching…' : 'Fetch'}
+            </button>
+          </div>
+          <div className="url-doi-hint">
+            arXiv → full section-by-section summary · DOI / other URL → abstract summary with a note
+          </div>
+          {sumFetchMsg && (
+            <div className={'sum-fetch-msg ' + sumFetchMsg.kind}>{sumFetchMsg.text}</div>
+          )}
+
+          <div className="url-doi-divider">or paste text / upload file</div>
+
           <div
             className={'upload-zone' + (sumDragOver ? ' drag-over' : '')}
             onClick={function() { var el = document.getElementById('sum-file-input'); if (el) el.click(); }}
@@ -4234,13 +4531,25 @@ function App() {
         </StepCard>
       )}
 
+      {mode === 'summarize' && summarizeResult !== null && summarizeResult.status === 'loading' && (
+        <StepCard num={1} title="Summarising Paper" status="loading">
+          <Dots text="Generating summary from abstract…" />
+        </StepCard>
+      )}
+
       {mode === 'summarize' && summarizeResult !== null && summarizeResult.status === 'error' && (
         <StepCard num={1} title="Summarise Paper" status="error">
           <ErrorBox msg={summarizeResult.error} onAddKey={openKeyPanel} hasKey={!!groqKey} />
         </StepCard>
       )}
 
-      {mode === 'summarize' && summarizeResult !== null &&
+      {mode === 'summarize' && summarizeResult !== null && summarizeResult.type === 'abstract' && summarizeResult.status === 'done' && (
+        <StepCard num={1} title={'Abstract Summary — ' + (summarizeResult.meta && summarizeResult.meta.title ? summarizeResult.meta.title.slice(0,60) + (summarizeResult.meta.title.length > 60 ? '…' : '') : 'Paper')} status="done">
+          <SummarizeReport result={summarizeResult} />
+        </StepCard>
+      )}
+
+      {mode === 'summarize' && summarizeResult !== null && summarizeResult.type !== 'abstract' &&
         (summarizeResult.status === 'running' || summarizeResult.status === 'done') && (
         <StepCard
           num={1}
