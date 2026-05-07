@@ -2101,7 +2101,46 @@ function _extractArxivId(raw) {
 function _extractDoi(raw) {
   var m = raw.match(/(?:doi\.org\/|^doi:?)(10\.[0-9]{4,}\/\S+)/i)
          || raw.match(/(10\.[0-9]{4,}\/\S+)/);
-  return m ? m[1].replace(/[.)]+$/, '') : null;
+  if (m) return m[1].replace(/[.)]+$/, '');
+  // Copernicus EGU journals: https://{j}.copernicus.org/articles/{vol}/{page}/{year}/
+  var cop = raw.match(/([a-z]+)\.copernicus\.org\/articles\/(\d+)\/(\d+)\/(\d{4})/i);
+  if (cop) return '10.5194/' + cop[1].toLowerCase() + '-' + cop[2] + '-' + cop[3] + '-' + cop[4];
+  // PubMed: ncbi.nlm.nih.gov/pubmed/NNNNN or /pmc/articles/PMCNNNNN
+  return null;
+}
+
+// Returns full-text URL candidates for known publisher URL patterns.
+function _fullTextUrlsFor(rawUrl, doi) {
+  var urls = [];
+  var base = rawUrl.replace(/\/+$/, '');
+
+  // Copernicus EGU — static per-article HTML file
+  var cop = rawUrl.match(/([a-z]+)\.copernicus\.org\/articles\/(\d+)\/(\d+)\/(\d{4})/i);
+  if (cop) {
+    var jfn = cop[1].toLowerCase() + '-' + cop[2] + '-' + cop[3] + '-' + cop[4];
+    // Ensure base ends at the year directory
+    var copBase = rawUrl.replace(/\/$/, '').replace(/\/[^/]+\.html$/, '');
+    urls.push(copBase + '/' + jfn + '.html');
+    return urls; // HTML file is the best source; no need to try more
+  }
+
+  // PubMed — redirect to PMC HTML via NCBI
+  if (/ncbi\.nlm\.nih\.gov\/pubmed\/(\d+)/i.test(rawUrl)) {
+    var pmid = rawUrl.match(/pubmed\/(\d+)/i)[1];
+    urls.push('https://www.ncbi.nlm.nih.gov/pmc/articles/pmid/' + pmid + '/');
+  }
+
+  // Frontiers — append /full if missing
+  if (/frontiersin\.org/i.test(rawUrl) && !/\/full/.test(rawUrl)) {
+    urls.push(base + '/full');
+  }
+
+  // Generic: try appending /full or ?format=html
+  if (urls.length === 0 && doi) {
+    // no extra variants — caller will try direct URL then Unpaywall
+  }
+
+  return urls;
 }
 function _extractArxivHtmlText(doc) {
   ['script','style','nav','footer','.ltx_bibliography','.ltx_appendix',
@@ -3720,23 +3759,26 @@ function App() {
   // Fetch an HTML page via allorigins and extract the main readable text.
   async function _fetchHtmlFullText(url) {
     var proxyUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent(url);
-    var resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(22000) });
+    var resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(25000) });
     var json = await resp.json();
     if (!json.contents) throw new Error('No content returned');
     var code = json.status && json.status.http_code;
     if (code && code >= 400) throw new Error('HTTP ' + code);
     var doc = new DOMParser().parseFromString(json.contents, 'text/html');
-    // Strip noise
+    // Strip noise elements
     ['script','style','nav','header','footer','noscript',
      '.references','#references','.bibliography','.ref-list',
      '.ltx_bibliography','figure','.figure','.supplementary',
-     '.sidebar','.ads','#ads','.cookie-banner','aside'].forEach(function(sel) {
+     '.sidebar','.ads','#ads','.cookie-banner','aside',
+     '.article-metrics','#article-metrics','.author-info',
+     '[class*="sidebar"]','[class*="widget"]'].forEach(function(sel) {
       try { doc.querySelectorAll(sel).forEach(function(el){ el.remove(); }); } catch(_){}
     });
-    // Try progressively broader selectors
+    // Try progressively broader selectors (order matters — most specific first)
     var el = doc.querySelector('article')
       || doc.querySelector('.article-body,.article-content,.paper-body,.full-text')
       || doc.querySelector('[class*="article-body"],[class*="paper-content"],[class*="fulltext"]')
+      || doc.querySelector('[id*="article-body"],[id*="paper-content"],[id*="fulltext"]')
       || doc.querySelector('main')
       || doc.querySelector('#article-content,#main-content,#content,#article,#main')
       || doc.body;
@@ -3745,7 +3787,11 @@ function App() {
       .replace(/[ \t]{2,}/g, ' ')
       .replace(/\n{4,}/g, '\n\n')
       .trim();
-    if (text.length < 600) throw new Error('Page content too short — likely a landing page or login wall');
+    // Require substantial text — landing pages / paywalls / login screens are < 2500 chars of body text
+    if (text.length < 2500) throw new Error('Page content too short — likely a landing page or access-restricted page');
+    // Extra sanity: at least ~300 words
+    var wordCount = text.split(/\s+/).length;
+    if (wordCount < 300) throw new Error('Too few words extracted — page may require login or JavaScript rendering');
     return text.slice(0, 90000);
   }
 
@@ -3869,19 +3915,32 @@ function App() {
       // ── Full-text pipeline for DOIs and general URLs ───────────────────────
       var fullText = null;
 
-      // 1. Try Europe PMC (covers all PubMed Central open-access papers — huge corpus)
+      // 1. Try publisher-specific full-text URLs (Copernicus, Frontiers, PubMed→PMC, etc.)
+      if (!fullText && isUrl) {
+        var ftCandidates = _fullTextUrlsFor(raw, doi);
+        for (var ci = 0; ci < ftCandidates.length && !fullText; ci++) {
+          setSumFetchMsg({ kind: 'loading', text: 'Fetching full text from publisher…' });
+          try {
+            var ctext = await _fetchHtmlFullText(ftCandidates[ci]);
+            if (ctext.length > 2500) fullText = ctext;
+          } catch(_) {}
+        }
+        if (fullText) { await _runWithText(fullText, 'Full text retrieved from publisher'); return; }
+      }
+
+      // 2. Try Europe PMC (covers all PubMed Central open-access papers — huge corpus)
       if (!fullText && doi) {
         setSumFetchMsg({ kind: 'loading', text: 'Checking Europe PMC for full text…' });
         try { fullText = await _tryEuropePmc(doi); } catch(_) {}
         if (fullText) { await _runWithText(fullText, 'Europe PMC full text retrieved'); return; }
       }
 
-      // 2. Try fetching the URL directly as HTML (works for PLOS, PeerJ, many OA journals)
+      // 3. Try fetching the URL directly as HTML (works for PLOS, PeerJ, many OA journals)
       if (!fullText && isUrl) {
         setSumFetchMsg({ kind: 'loading', text: 'Fetching page content directly…' });
         try {
           var directText = await _fetchHtmlFullText(raw);
-          if (directText.length > 1200) fullText = directText;
+          if (directText.length > 2500) fullText = directText;
         } catch(_) {}
         if (fullText) { await _runWithText(fullText, 'Full text retrieved from URL'); return; }
       }
@@ -3900,7 +3959,7 @@ function App() {
               setSumFetchMsg({ kind: 'loading', text: 'Open-access HTML version found — fetching…' });
               try {
                 var oaText = await _fetchHtmlFullText(oaInfo.htmlUrl);
-                if (oaText.length > 1200) fullText = oaText;
+                if (oaText.length > 2500) fullText = oaText;
               } catch(_) {}
             }
           }
