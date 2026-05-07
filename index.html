@@ -2149,9 +2149,37 @@ function _fullTextUrlsFor(rawUrl, doi) {
     return urls;
   }
 
-  // Frontiers — the full-text page is the /full variant
-  if (/frontiersin\.org/i.test(rawUrl) && !/\/full\b/.test(rawUrl)) {
-    urls.push(base + '/full');
+  // Frontiers — full text is at /full; construct from DOI when URL is doi.org
+  if (/frontiersin\.org/i.test(rawUrl)) {
+    if (!/\/full\b/.test(rawUrl)) urls.push(base + '/full');
+  } else if (doi && /^10\.3389\//.test(doi)) {
+    urls.push('https://www.frontiersin.org/articles/' + doi + '/full');
+  }
+
+  // PLOS — full text HTML is directly accessible (server-rendered)
+  if (/plos(?:one|biology|medicine|genetics|pathogens|compbiol|ntds)?\./i.test(rawUrl)) {
+    if (!/\?.*type=.*manuscript/i.test(rawUrl)) return urls; // already article page
+  } else if (doi && /^10\.1371\//.test(doi)) {
+    urls.push('https://journals.plos.org/plosone/article?id=' + encodeURIComponent(doi));
+  }
+
+  // MDPI — full text HTML accessible at the article page
+  if (doi && /^10\.3390\//.test(doi) && !/mdpi\.com/i.test(rawUrl)) {
+    var mdpiParts = doi.replace('10.3390/', '').split('/');
+    if (mdpiParts.length >= 2) {
+      urls.push('https://www.mdpi.com/' + mdpiParts[0] + '/' + mdpiParts[1]);
+    }
+  }
+
+  // eLife — full text HTML
+  if (doi && /^10\.7554\/eLife\./i.test(doi) && !/elifesciences\.org/i.test(rawUrl)) {
+    var elifeNum = doi.replace(/^10\.7554\/eLife\./i, '');
+    urls.push('https://elifesciences.org/articles/' + elifeNum);
+  }
+
+  // PeerJ — full text HTML
+  if (doi && /^10\.7717\/peerj/.test(doi) && !/peerj\.com/i.test(rawUrl)) {
+    urls.push('https://peerj.com/articles/' + doi.replace('10.7717/', ''));
   }
 
   return urls;
@@ -3770,14 +3798,35 @@ function App() {
     return { title: title.trim(), abstract: abstract.trim(), authors: authors, year: published.slice(0,4), source: 'arxiv', id: arxivId };
   }
 
-  // Fetch an HTML page via allorigins and extract the main readable text.
+  // Fetch an HTML page via proxy and extract the main readable text.
+  // Tries allorigins first, then corsproxy.io as fallback.
   async function _fetchHtmlFullText(url) {
-    var proxyUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent(url);
-    var resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(25000) });
-    var json = await resp.json();
+    var rawHtml = null;
+
+    // Try allorigins (returns JSON with .contents)
+    try {
+      var proxyUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent(url);
+      var r0 = await fetch(proxyUrl, { signal: AbortSignal.timeout(20000) });
+      if (r0.ok) {
+        var j0 = await r0.json();
+        var code0 = j0.status && j0.status.http_code;
+        if (j0.contents && (!code0 || code0 < 400)) rawHtml = j0.contents;
+      }
+    } catch(_) {}
+
+    // Fallback: corsproxy.io (returns raw HTML)
+    if (!rawHtml) {
+      try {
+        var p2 = 'https://corsproxy.io/?' + encodeURIComponent(url);
+        var r2 = await fetch(p2, { signal: AbortSignal.timeout(20000) });
+        if (r2.ok) rawHtml = await r2.text();
+      } catch(_) {}
+    }
+
+    var json = { contents: rawHtml };
+    var resp = { ok: !!rawHtml };
     if (!json.contents) throw new Error('No content returned');
-    var code = json.status && json.status.http_code;
-    if (code && code >= 400) throw new Error('HTTP ' + code);
+    var code = null;
     var doc = new DOMParser().parseFromString(json.contents, 'text/html');
     // Strip noise elements
     ['script','style','nav','header','footer','noscript',
@@ -3809,13 +3858,47 @@ function App() {
     return text.slice(0, 90000);
   }
 
-  // Fetch a PDF from a URL via allorigins raw proxy and parse with pdf.js.
+  // Fetch a PDF and parse it with pdf.js.
+  // Tries direct fetch first (works for CORS-enabled OA servers),
+  // then falls back to two proxy services.
   async function _fetchPdfFullText(pdfUrl) {
-    var proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(pdfUrl);
-    var resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(40000) });
-    if (!resp.ok) throw new Error('PDF download failed: HTTP ' + resp.status);
-    var buf = await resp.arrayBuffer();
-    if (buf.byteLength < 5000) throw new Error('Downloaded file too small to be a valid PDF');
+    var buf = null;
+
+    // 1. Direct fetch — PMC, Europe PMC, many OA publishers allow this
+    try {
+      var dr = await fetch(pdfUrl, { signal: AbortSignal.timeout(25000) });
+      if (dr.ok) {
+        var candidate = await dr.arrayBuffer();
+        if (candidate.byteLength > 5000) buf = candidate;
+      }
+    } catch(_) {}
+
+    // 2. allorigins raw proxy
+    if (!buf) {
+      try {
+        var p1 = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(pdfUrl);
+        var r1 = await fetch(p1, { signal: AbortSignal.timeout(35000) });
+        if (r1.ok) {
+          var c1 = await r1.arrayBuffer();
+          if (c1.byteLength > 5000) buf = c1;
+        }
+      } catch(_) {}
+    }
+
+    // 3. corsproxy.io fallback
+    if (!buf) {
+      try {
+        var p2 = 'https://corsproxy.io/?' + encodeURIComponent(pdfUrl);
+        var r2 = await fetch(p2, { signal: AbortSignal.timeout(35000) });
+        if (r2.ok) {
+          var c2 = await r2.arrayBuffer();
+          if (c2.byteLength > 5000) buf = c2;
+        }
+      } catch(_) {}
+    }
+
+    if (!buf) throw new Error('PDF could not be downloaded from any source');
+
     var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
     var pages = [];
     for (var p = 1; p <= Math.min(pdf.numPages, 80); p++) {
