@@ -1079,6 +1079,7 @@ async function callAI(system, user) {
           { role: 'system', content: system },
           { role: 'user',   content: user   },
         ],
+        response_format: { type: 'json_object' },
       }),
     });
     if (!res.ok) {
@@ -1107,14 +1108,45 @@ async function callAI(system, user) {
   return d.text;
 }
 
-// Parses JSON from an AI response - handles markdown code fences.
+// Repair common Llama/Groq JSON failures: unquoted string values, trailing commas.
+function _repairJson(raw) {
+  var t = raw.trim();
+  // Strip code fences
+  var fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) t = fence[1].trim();
+  // Extract outermost {...} block
+  var objM = t.match(/\{[\s\S]*\}/);
+  if (objM) t = objM[0];
+
+  // Fix unquoted string values: "key": unquoted text until next "key": or }
+  // [^"\[{tfn\-0-9\s] matches a char that can't start a valid JSON value
+  t = t.replace(
+    /("(?:[^"\\]|\\.)*"\s*:\s*)([^"\[{tfn\-0-9\s][^]*?)(?=\s*,\s*"(?:[^"\\]|\\.)*"\s*:|\s*,?\s*})/g,
+    function(match, keyPart, val) {
+      val = val.trim().replace(/,\s*$/, '');
+      if (!val) return keyPart + 'null';
+      var escaped = val.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, ' ');
+      return keyPart + '"' + escaped + '"';
+    }
+  );
+  // Fix trailing commas before } or ]
+  t = t.replace(/,(\s*[}\]])/g, '$1');
+  return t;
+}
+
+// Parses JSON from an AI response - handles markdown fences and repairs common failures.
 function parseJson(text) {
   const t = text.trim();
-  try { return JSON.parse(t); } catch(e1) {}
+  // 1. Direct parse
+  try { return JSON.parse(t); } catch(_) {}
+  // 2. Strip code fence then parse
   const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence) { try { return JSON.parse(fence[1].trim()); } catch(e2) {} }
+  if (fence) { try { return JSON.parse(fence[1].trim()); } catch(_) {} }
+  // 3. Extract {...} block then parse
   const obj = t.match(/\{[\s\S]*\}/);
-  if (obj) { try { return JSON.parse(obj[0]); } catch(e3) {} }
+  if (obj) { try { return JSON.parse(obj[0]); } catch(_) {} }
+  // 4. Repair unquoted values and retry
+  try { return JSON.parse(_repairJson(t)); } catch(_) {}
   throw new Error('Could not parse JSON. Raw response: ' + t.slice(0, 400));
 }
 
@@ -1124,9 +1156,10 @@ async function aiJson(system, user) {
   try {
     return parseJson(text);
   } catch(parseErr) {
+    // Retry with explicit JSON enforcement and a concrete example
     const retry = await callAI(
-      system,
-      user + '\n\nIMPORTANT: Return ONLY valid JSON. No markdown. No code fences. No extra text.'
+      system + '\n\nCRITICAL: Your response MUST be valid JSON. Every string value MUST be enclosed in double quotes. Example of correct format: {"key": "value here", "other": "text here"}. Do NOT write unquoted text.',
+      user + '\n\nReturn ONLY valid JSON. All string values must be in double quotes.'
     );
     return parseJson(retry);
   }
